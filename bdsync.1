@@ -1,0 +1,73 @@
+.TH "bdsync" "1" "24 Jun 2012" "" ""
+.SH "NAME"
+bdsync \(em a fast block device synchronizing tool
+.SH "SYNOPSIS"
+
+.PP 
+.nf 
+  Client: bdsync [--verbose] REMSHCMD LOCDEV REMDEV
+  Server: bdsync --server [--verbose]
+  Patch:  bdsync --patch [--verbose] [DSTDEV]
+.fi 
+.SH "DESCRIPTION"
+
+.PP 
+Bdsync can be used to synchronize block devices over a network. It generates
+a "binary diff" in an efficient way by comparing MD5 checksums of 32k blocks
+of the local block device LOCDEV and the remote block device REMDEV.
+.PP
+This binary diff can be sent to the remote machine and applied to its block
+device DSTDEV, after which the local blockdev LOCDEV and the remote block 
+device REMDEV are synchronized.
+.PP
+bdsync was built to do the only thing rsync isn't able to do: synchronize block
+devices.
+.PP 
+.SH "USAGE"
+
+.PP 
+Bdsync assumes a client is connecting to a server. The connection isn't
+established by the client itself, but by a remote-shell-command REMSHCMD.
+This REMSHCMD can be any kind of command to make a connection: rsh, ssh, netcat..
+If using rsh or ssh REMSHCMD should be the full command to make the
+connection including the remote bdsync command te be executed in server mode. If
+using netcat to make the connection, the remote server mode bdsync command should
+be executed by inetd, xinetd etc.
+.PP
+The --verbose option results in verbose output. In Server mode the output will be sent to syslog. The --verbose option can be repeated raising the verbosity level.
+.PP
+Bdsync can be initiated like this in its most simple form:
+.PP
+.RS 
+\f(CWbdsync "bdsync -s" /dev/LOCDEV /dev/REMDEV > DEV.bdsync\fP
+.RE
+.PP
+This generates a diff DEV.rsync of the /dev/LOCDEV and the /dev/REMDEV devices
+which both are local. A more realistic example is this:
+.PP
+.RS 
+\f(CWbdsync "ssh doe@foo.org bdsync --server" /dev/LOCDEV /dev/REMDEV | gzip > DEV.bdsync.gz\fP
+.RE
+.PP
+This bdsync client makes an ssh connection to foo.org as user doe and executes a
+bdsync client by passing it the --server option. The generated diff output is
+passed on to gzip which creates a compressed diff file DEV.bdsync.gz.
+.PP
+On the remote machine foo.org the user doe can apply the patch by executing:
+.PP
+.RS 
+\f(CWgzip < DEV.bdsync.gz | bdsync --patch /dev/DSTDEV\fP
+.RE
+.PP
+The reason to use a binary patch file instead of instantly patching the remote
+block device REMDEV is twofold:
+.PP
+.IP o
+Sending over a complete diff allows to synchronize in a consistent way in case
+of an interruption (powerloss, network malfunction) since you can choose to
+apply the (complete) diff or not.
+.PP
+.IP o
+Compression of the diff can easily be done, without introducing complexity in
+bdsync itself.
+.PP 
