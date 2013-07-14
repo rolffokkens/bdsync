@@ -304,6 +304,7 @@ enum messages {
 ,   msg_salt
 ,   msg_gethash
 ,   msg_hashes
+,   msg_done
 ,   msg_max
 };
 
@@ -315,6 +316,7 @@ static char *msgstring[] = {
 ,  "salt"
 ,  "gethash"
 ,  "hashes"
+,  "done"
 };
 
 int msg_write (int fd, char token, char *buf, size_t len)
@@ -359,13 +361,13 @@ int add_wr_queue (struct wr_queue *pqueue, char token, char *buf, size_t len)
     pqueue->len += (sizeof (pqueue->tlen) + len + 1);
 }
 
-int flush_wr_queue (struct wr_queue *pqueue)
+int flush_wr_queue (struct wr_queue *pqueue, int wait)
 {
     size_t retval = 0, len, tmp;
     struct msg *phd;
     char   *pwr;
 
-    verbose (3, "flush_wr_queue: len = %lld\n",  (long long)pqueue->len);
+    verbose (3, "flush_wr_queue: wait = %d, len = %lld\n",  wait, (long long)pqueue->len);
 
     while ((phd = pqueue->phd) != NULL) {
         if (pqueue->state == qhdr) {
@@ -394,6 +396,21 @@ int flush_wr_queue (struct wr_queue *pqueue)
             pwr = phd->data + pqueue->pos;
         }
 
+        if (wait) {
+            struct pollfd pfd;
+
+            pfd.fd     = pqueue->wr_fd;
+            pfd.events = POLLOUT;
+
+            tmp = poll (&pfd, 1, -1);
+
+            if (pfd.revents) {
+                if (!(pfd.revents & POLLOUT)) {
+                    verbose (0, "flush_wr_queue: poll error on fd %d\n", pfd.fd);
+                    exit (1);
+                }
+            }
+        }
         tmp = write (pqueue->wr_fd, pwr, len);
         if (tmp == 0) break;
         if (tmp == -1) {
@@ -447,7 +464,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
         } else {
             len = pqueue->ptl->len - pqueue->pos;
             if (len == 0) {
-                verbose (2, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len);
+                verbose (2, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -468,9 +485,9 @@ int fill_rd_queue (struct rd_queue *pqueue)
             exit (1);
         }
         pqueue->pos += tmp;
-        if (pqueue->state == qdata) retval += tmp;
+        retval += tmp;
 
-        verbose (3, "fill_rd_queue: len = %lld\n",  (long long)(pqueue->len - retval));
+        verbose (3, "fill_rd_queue: len = %lld\n",  (long long)(pqueue->len + retval));
     }
     pqueue->len += retval;
 
@@ -495,7 +512,14 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
         verbose (3, "get_rd_queue: poll %d\n", tmp);
 
         if (pfd[0].revents & POLLIN)  fill_rd_queue (prd_queue);
-        if (pfd[1].revents & POLLOUT) flush_wr_queue (pwr_queue);
+        if (pfd[1].revents) {
+            if (pfd[1].revents & POLLOUT) {
+                flush_wr_queue (pwr_queue, 0);
+            } else {
+                verbose (0, "get_rd_queue: poll error on fd %d\n", pfd[1].fd);
+                exit (1);
+            }
+        }
     }
 
     phd = prd_queue->phd;
@@ -505,7 +529,7 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
     *msglen = phd->len - 1;
     memcpy (*msg, phd->data + 1, phd->len - 1);
 
-    prd_queue->len -= (sizeof (prd_queue->tlen) + phd->len + 1);
+    prd_queue->len -= (sizeof (prd_queue->tlen) + phd->len);
     prd_queue->phd  = phd->pnxt;
     if (phd->pnxt == NULL) prd_queue->ptl = NULL;
 
@@ -618,6 +642,15 @@ int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep
     return add_wr_queue (pqueue, msg_hashes, tbuf, sizeof (par) + siz);
 
     free (tbuf);
+};
+
+int send_done (struct wr_queue *pqueue)
+{
+    char buf[1];
+
+    verbose (1, "send_done\n");
+
+    return add_wr_queue (pqueue, msg_done, buf, 0);
 };
 
 void read_all (int fd, char *buf, size_t buflen)
@@ -832,7 +865,7 @@ int gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
     fbuf    = malloc (step);
 
     while (nstep) {
-        flush_wr_queue (pwr_queue);
+        flush_wr_queue (pwr_queue, 0);
         fill_rd_queue (prd_queue);
 
         nrd = read (fd, fbuf, step);
@@ -896,10 +929,11 @@ int do_server (void)
     char *devfile = NULL;
     char *hello   = NULL;
 
-    int  exp = msg_hello;
+    int  exp  = msg_hello;
+    int  goon = 1;
 
-    for (;;) {
-        flush_wr_queue (&wr_queue);
+    while (goon) {
+        flush_wr_queue (&wr_queue, 0);
         get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
 
         if (exp) {
@@ -926,11 +960,17 @@ int do_server (void)
             send_hashes (&wr_queue, start, step, nstep, hbuf, hsize);
             free (hbuf);
             break;
+        case msg_done:
+            send_done (&wr_queue);
+            goon = 0;
+            break;
         default:
             exit (1);
             break;
         }
     }
+    flush_wr_queue (&wr_queue, 1);
+
     free (msg);
 };
 
@@ -1078,6 +1118,12 @@ int hashmatch ( int saltsize, char *salt
             pos += rstep;
         }
         free (lhbuf);
+    }
+
+    if (!recurs) {
+        send_done (pwr_queue);
+        get_rd_queue (pwr_queue, prd_queue,  &token, &msg, &msglen);
+        check_token ("", token, msg_done);
     }
 
     verbose (2, "hashmatch: recurs=%d\n", recurs);
