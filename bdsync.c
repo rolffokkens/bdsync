@@ -81,6 +81,7 @@ struct msg {
 enum qstate {
     qhdr  = 1
 ,   qdata
+,   qeof
 };
 
 struct wr_queue {
@@ -384,7 +385,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (2, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len);
+                verbose (2, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -435,7 +436,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
 
     verbose (3, "fill_rd_queue: len = %lld\n",  (long long)pqueue->len);
 
-    for (;;) {
+    while (pqueue->state != qeof) {
         if (pqueue->state == qhdr) {
             len = sizeof (pqueue->tlen) - pqueue->pos;
             if (len == 0) {
@@ -476,6 +477,12 @@ int fill_rd_queue (struct rd_queue *pqueue)
         }
         tmp = read (pqueue->rd_fd, prd, len);
         if (tmp == 0) {
+            /* When reading the header at pos 0 it's OK */
+            if (pqueue->state == qhdr && pqueue->pos == 0) {
+                pqueue->state = qeof;
+                verbose (3, "fill_rd_queue: eof");
+                continue;
+            }
             verbose (0, "fill_rd_queue: EOF\n");
             exit (1);
         }
@@ -500,7 +507,8 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
     struct msg    *phd;
     int           tmp, nfd;
 
-    while (prd_queue->state != qhdr || prd_queue->phd == NULL) {
+    while (    prd_queue->state != qeof
+           && (prd_queue->state != qhdr || prd_queue->phd == NULL)) {
         pfd[0].fd     = prd_queue->rd_fd;
         pfd[0].events = POLLIN;
 
@@ -524,6 +532,11 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
 
     phd = prd_queue->phd;
 
+    if (phd == NULL) {
+        verbose (0, "get_rd_queue: EOF %d\n", pfd[1].fd);
+        exit (1);
+    }
+
     *token  = phd->data[0];
     *msg    = (char *)malloc (phd->len);
     *msglen = phd->len - 1;
@@ -532,6 +545,8 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
     prd_queue->len -= (sizeof (prd_queue->tlen) + phd->len);
     prd_queue->phd  = phd->pnxt;
     if (phd->pnxt == NULL) prd_queue->ptl = NULL;
+
+    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgstring[*token], *msglen);
 
     return 0;
 }
