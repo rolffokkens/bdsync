@@ -346,6 +346,11 @@ int add_wr_queue (struct wr_queue *pqueue, char token, char *buf, size_t len)
 
     verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgstring[token], len);
 
+    if (pqueue->state == qeof) {
+        verbose (0, "add_wr_queue: EOF\n");
+        exit (1);
+    }
+
     pmsg = (struct msg *) malloc (sizeof (struct msg) + len + 1);
 
     pmsg->len     = len + 1;
@@ -385,7 +390,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (2, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -465,7 +470,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
         } else {
             len = pqueue->ptl->len - pqueue->pos;
             if (len == 0) {
-                verbose (2, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -480,7 +485,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
             /* When reading the header at pos 0 it's OK */
             if (pqueue->state == qhdr && pqueue->pos == 0) {
                 pqueue->state = qeof;
-                verbose (3, "fill_rd_queue: eof");
+                verbose (3, "fill_rd_queue: eof\n");
                 continue;
             }
             verbose (0, "fill_rd_queue: EOF\n");
@@ -515,7 +520,8 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
         pfd[1].fd     = pwr_queue->wr_fd;
         pfd[1].events = (pwr_queue->phd ? POLLOUT: 0);
 
-        tmp = poll (pfd, 2, -1);
+        nfd = (pwr_queue->state == qeof ? 1 : 2);
+        tmp = poll (pfd, nfd, -1);
 
         verbose (3, "get_rd_queue: poll %d\n", tmp);
 
@@ -524,8 +530,18 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *
             if (pfd[1].revents & POLLOUT) {
                 flush_wr_queue (pwr_queue, 0);
             } else {
-                verbose (0, "get_rd_queue: poll error on fd %d\n", pfd[1].fd);
-                exit (1);
+                if (pfd[1].revents & POLLHUP) {
+                    if (pwr_queue->phd == NULL) {
+                        pwr_queue->state = qeof;
+                        verbose (3, "get_rd_queue: poll pollhup\n");
+                    } else {
+                        verbose (0, "get_rd_queue: poll POLLHUP\n");
+                        exit (1);
+                    }
+                } else {
+                    verbose (0, "get_rd_queue: poll error on fd %d\n", pfd[1].fd);
+                    exit (1);
+                }
             }
         }
     }
@@ -857,6 +873,15 @@ int parse_hashes ( char *msgbuf, size_t msglen
     verbose (1, "parse_hashes: start=%lld, step=%lld, nstep=%d\n", (long long)*start, (long long)*step, *nstep);
 };
 
+int parse_done (char *msgbuf, size_t msglen)
+{
+    if (msglen != 0) {
+        verbose (0, "parse_done: bad size=%lld\n", (long long)msglen);
+        exit (1);
+    }
+    verbose (1, "parse_done\n");
+};
+
 int gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
                , int saltsize, char *salt
                , char **retbuf, size_t *retsiz, int fd
@@ -976,6 +1001,7 @@ int do_server (void)
             free (hbuf);
             break;
         case msg_done:
+            parse_done (msg, msglen);
             send_done (&wr_queue);
             goon = 0;
             break;
@@ -1113,7 +1139,7 @@ int hashmatch ( int saltsize, char *salt
                     unsigned short blen = tend - pos;
                     char *fbuf = malloc (blen);
 
-                    verbose ( 1, "diff: %lld - %lld\n"
+                    verbose ( 3, "diff: %lld - %lld\n"
                             , (long long)pos, (long long)tend - 1);
 
                     pread (devfd, fbuf, blen, pos);
@@ -1139,6 +1165,7 @@ int hashmatch ( int saltsize, char *salt
         send_done (pwr_queue);
         get_rd_queue (pwr_queue, prd_queue,  &token, &msg, &msglen);
         check_token ("", token, msg_done);
+        parse_done (msg, msglen);
     }
 
     verbose (2, "hashmatch: recurs=%d\n", recurs);
