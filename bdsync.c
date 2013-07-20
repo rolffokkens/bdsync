@@ -321,7 +321,7 @@ static char *msgstring[] = {
 ,  "done"
 };
 
-int msg_write (int fd, char token, char *buf, size_t len)
+int msg_write (int fd, u_char token, char *buf, size_t len)
 {
     u_int32_t tmp = len + 1;
     char      tbuf[sizeof (tmp)];
@@ -341,7 +341,7 @@ int msg_write (int fd, char token, char *buf, size_t len)
     return 0;
 }
 
-void add_wr_queue (struct wr_queue *pqueue, char token, char *buf, size_t len)
+void add_wr_queue (struct wr_queue *pqueue, u_char token, char *buf, size_t len)
 {
     struct msg *pmsg;
 
@@ -391,7 +391,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[(unsigned) phd->data[0]], phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -471,7 +471,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
         } else {
             len = pqueue->ptl->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned) pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -507,7 +507,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
     return retval;
 }
 
-int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *token, char **msg, size_t *msglen)
+int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsigned char *token, char **msg, size_t *msglen)
 {
     struct pollfd pfd[2];
     struct msg    *phd;
@@ -704,7 +704,7 @@ void read_all (int fd, char *buf, size_t buflen)
     }
 };
 
-int msg_read (int fd, char **buf, size_t *buflen, char *token, char **msg, size_t *msglen, int maxlen)
+int msg_read (int fd, char **buf, size_t *buflen, unsigned char *token, char **msg, size_t *msglen, int maxlen)
 {
     u_int32_t tmp;
     char      tbuf[sizeof(tmp)];
@@ -909,7 +909,7 @@ void gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
 
         SHA256_Init (&ctx);
         SHA256_Update (&ctx, fbuf, nrd);
-        SHA256_Final (buf, &ctx);
+        SHA256_Final ((unsigned char*) buf, &ctx);
         buf += HASHSIZE;
 
         if (nrd != step) break;
@@ -941,7 +941,7 @@ int do_server (void)
 {
     char    *msg;
     size_t  msglen;
-    char    token;
+    u_char  token;
     int     devfd, nstep;
     int     saltsize = 0;
     off64_t devsiz, start, step;
@@ -1047,7 +1047,7 @@ int tcp_connect (char *host, char *service)
     return s;
 }
 
-void check_token (char *f, char token, char expect)
+void check_token (char *f, u_char token, u_char expect)
 {
     if (token == expect) return;
     verbose (0, "%sUnexpected token=%s, expected=%s\n", f, msgstring[token], msgstring[expect]);
@@ -1075,7 +1075,7 @@ void hashmatch ( int saltsize, char *salt
     size_t  lhsize;
     char    *msg;
     size_t  msglen;
-    char    token;
+    u_char  token;
 
     off64_t rstart, rstep;
     int     rnstep;
@@ -1165,7 +1165,7 @@ int do_client (char *command, char *ldev, char *rdev)
 {
     char    *msg;
     size_t  msglen;
-    char    token;
+    u_char  token;
     char    salt[SALTSIZE];
     int     ldevfd;
     off64_t ldevsize, rdevsize;
