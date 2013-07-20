@@ -175,52 +175,52 @@ int init_salt (int saltsize, char *salt)
 
 pid_t piped_child(char **command, int *f_in, int *f_out)
 {
-        pid_t pid;
-        int to_child_pipe[2];
-        int from_child_pipe[2];
+	pid_t pid;
+	int to_child_pipe[2];
+	int from_child_pipe[2];
 
-        verbose (2, "opening connection using: %s\n", command[0]);
+	verbose (2, "opening connection using: %s\n", command[0]);
 
-        if (fd_pair(to_child_pipe) < 0 || fd_pair(from_child_pipe) < 0) {
-                verbose (0, "piped_child: %s\n", strerror (errno));
-                exit (1);
-        }
+	if (fd_pair(to_child_pipe) < 0 || fd_pair(from_child_pipe) < 0) {
+		verbose (0, "piped_child: %s\n", strerror (errno));
+		exit (1);
+	}
 
-        pid = fork();
-        if (pid == -1) {
-                verbose (0, "piped_child: fork: %s\n", strerror (errno));
-                exit (1);
-        }
+	pid = fork();
+	if (pid == -1) {
+		verbose (0, "piped_child: fork: %s\n", strerror (errno));
+		exit (1);
+	}
 
-        if (pid == 0) {
-                if (dup2(to_child_pipe[0], STDIN_FILENO) < 0 ||
-                    close(to_child_pipe[1]) < 0 ||
-                    close(from_child_pipe[0]) < 0 ||
-                    dup2(from_child_pipe[1], STDOUT_FILENO) < 0) {
-                        verbose (0, "piped_child: dup2: %s\n", strerror (errno));
-                        exit (1);
-                }
-                if (to_child_pipe[0] != STDIN_FILENO)
-                        close(to_child_pipe[0]);
-                if (from_child_pipe[1] != STDOUT_FILENO)
-                        close(from_child_pipe[1]);
-                // umask(orig_umask);
-                set_blocking(STDIN_FILENO);
-                set_blocking(STDOUT_FILENO);
-                execvp(command[0], command);
-                verbose (0, "piped_child: execvp: %s\n", strerror (errno));
-                exit (1);
-        }
+	if (pid == 0) {
+		if (dup2(to_child_pipe[0], STDIN_FILENO) < 0 ||
+			close(to_child_pipe[1]) < 0 ||
+			close(from_child_pipe[0]) < 0 ||
+			dup2(from_child_pipe[1], STDOUT_FILENO) < 0) {
+				verbose (0, "piped_child: dup2: %s\n", strerror (errno));
+				exit (1);
+		}
+		if (to_child_pipe[0] != STDIN_FILENO)
+				close(to_child_pipe[0]);
+		if (from_child_pipe[1] != STDOUT_FILENO)
+				close(from_child_pipe[1]);
+		// umask(orig_umask);
+		set_blocking(STDIN_FILENO);
+		set_blocking(STDOUT_FILENO);
+		execvp(command[0], command);
+		verbose (0, "piped_child: execvp: %s\n", strerror (errno));
+		exit (1);
+	}
 
-        if (close(from_child_pipe[1]) < 0 || close(to_child_pipe[0]) < 0) {
-                verbose (0, "piped_child: close: %s\n", strerror (errno));
-                exit (1);
-        }
+	if (close(from_child_pipe[1]) < 0 || close(to_child_pipe[0]) < 0) {
+		verbose (0, "piped_child: close: %s\n", strerror (errno));
+		exit (1);
+	}
 
-        *f_in = from_child_pipe[0];
-        *f_out = to_child_pipe[1];
+	*f_in = from_child_pipe[0];
+	*f_out = to_child_pipe[1];
 
-        return pid;
+	return pid;
 };
 
 pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue)
