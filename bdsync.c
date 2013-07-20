@@ -43,7 +43,7 @@
 #define MSGMAX 131072
 #define ARGMAX 256
 
-#define HASHSIZE 32
+#define HASHSIZE 20
 #define SALTSIZE 32
 
 #define ARCHVER "BDSYNC 0.2"
@@ -886,7 +886,7 @@ void gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
 {
     char       *buf, *fbuf;
     off64_t    nrd;
-    SHA256_CTX ctx;
+    SHA_CTX ctx;
 
     *retsiz = nstep * HASHSIZE;
     buf     = malloc (nstep * HASHSIZE);
@@ -910,9 +910,9 @@ void gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
         verbose (3, "gen_hashes: read pos=%lld, step=%lld, nrd=%d\n"
                 , (long long) start, (long long) step, nrd);
 
-        SHA256_Init (&ctx);
-        SHA256_Update (&ctx, fbuf, nrd);
-        SHA256_Final ((unsigned char*) buf, &ctx);
+        SHA1_Init (&ctx);
+        SHA1_Update (&ctx, fbuf, nrd);
+        SHA1_Final ((unsigned char*) buf, &ctx);
         buf += HASHSIZE;
 
         if (nrd != step) break;
