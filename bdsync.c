@@ -225,12 +225,15 @@ pid_t piped_child(char **command, int *f_in, int *f_out)
 
 pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue)
 {
-    int argc = 0;
+    int i, argc = 0;
     char *t, *f, *args[ARGMAX];
     pid_t pid;
     int in_quote = 0;
     int f_in, f_out;
 
+    for (i = 0; i < ARGMAX; i++) {
+    	args[i] = 0;
+    }
     command = strdup (command);
 
     for (t = f = command; *f; f++) {
