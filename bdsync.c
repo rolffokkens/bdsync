@@ -882,7 +882,8 @@ void parse_done (char *msgbuf, size_t msglen)
 void gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
                , int saltsize, char *salt
                , char **retbuf, size_t *retsiz, int fd
-               , off64_t start, off64_t step, int nstep)
+               , off64_t start, off64_t step, int nstep
+               , SHA_CTX *devhashctx)
 {
     char       *buf, *fbuf;
     off64_t    nrd;
@@ -914,6 +915,10 @@ void gen_hashes ( struct rd_queue *prd_queue, struct wr_queue *pwr_queue
         SHA1_Update (&ctx, fbuf, nrd);
         SHA1_Final ((unsigned char*) buf, &ctx);
         buf += HASHSIZE;
+
+        if (devhashctx) {
+            SHA1_Update(devhashctx, fbuf, nrd);
+        }
 
         if (nrd != step) break;
         nstep--;
@@ -991,7 +996,7 @@ int do_server (void)
             break;
         case msg_gethash:
             parse_gethash (msg, msglen, &start, &step, &nstep);
-            gen_hashes (&rd_queue, &wr_queue, saltsize, salt, &hbuf, &hsize, devfd, start, step, nstep);
+            gen_hashes (&rd_queue, &wr_queue, saltsize, salt, &hbuf, &hsize, devfd, start, step, nstep, NULL);
             send_hashes (&wr_queue, start, step, nstep, hbuf, hsize);
             free (hbuf);
             break;
@@ -1070,7 +1075,8 @@ void hashmatch ( int saltsize, char *salt
               , off64_t hashstart, off64_t hashend, off64_t hashstep
               , int maxsteps
               , int *hashreqs
-              , int recurs)
+              , int recurs
+              , SHA_CTX *devhashctx)
 {
     int     hashsteps;
     char    *rhbuf;
@@ -1115,7 +1121,11 @@ void hashmatch ( int saltsize, char *salt
         free (msg);
 
         /* Generate our own list of hashes */
-        gen_hashes (prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, rstart, rstep, rnstep);
+        if (rstep == HLARGE) {
+            gen_hashes (prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, rstart, rstep, rnstep, devhashctx);
+        } else {
+             gen_hashes (prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, rstart, rstep, rnstep, 0);
+        }
 
         off64_t pos = rstart;
         char    *lp = lhbuf, *rp = rhbuf;
@@ -1144,7 +1154,7 @@ void hashmatch ( int saltsize, char *salt
                     free (fbuf);
                 } else {
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
-                    hashmatch (saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, HSMALL, rstep/HSMALL, hashreqs, recurs + 1);
+                    hashmatch (saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, HSMALL, rstep/HSMALL, hashreqs, recurs + 1, devhashctx);
                 }
             }
             lp  += HASHSIZE;
@@ -1166,6 +1176,7 @@ void hashmatch ( int saltsize, char *salt
 
 int do_client (char *command, char *ldev, char *rdev)
 {
+    int i;
     char    *msg;
     size_t  msglen;
     u_char  token;
@@ -1211,7 +1222,10 @@ int do_client (char *command, char *ldev, char *rdev)
 
     int hashreqs = 0;
 
-    hashmatch (SALTSIZE, salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, HLARGE, HMAXCNT, &hashreqs, 0);
+    SHA_CTX devhashctx;
+    SHA1_Init (&devhashctx);
+
+    hashmatch (SALTSIZE, salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, HLARGE, HMAXCNT, &hashreqs, 0, &devhashctx);
 
     // finish the bdsync archive
     {
@@ -1221,6 +1235,13 @@ int do_client (char *command, char *ldev, char *rdev)
         fwrite (&pos,  sizeof (pos),  1, stdout);
         fwrite (&blen, sizeof (blen), 1, stdout);
     }
+
+    // add checksum
+    u_char c[SHA_DIGEST_LENGTH];
+    SHA1_Final (c, &devhashctx);
+    for (i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        fprintf(stdout, "%02x", c[i]);
+    } 
 
     return 0;
 };
