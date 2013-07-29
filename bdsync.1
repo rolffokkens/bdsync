@@ -5,7 +5,7 @@ bdsync \(em a fast block device synchronizing tool
 
 .PP 
 .nf 
-  Client: bdsync [--verbose] REMSHCMD LOCDEV REMDEV
+  Client: bdsync [--verbose] [--digest DIGEST] REMSHCMD LOCDEV REMDEV
   Server: bdsync --server [--verbose]
   Patch:  bdsync --patch [--verbose] [DSTDEV]
 .fi 
@@ -13,17 +13,37 @@ bdsync \(em a fast block device synchronizing tool
 
 .PP 
 Bdsync can be used to synchronize block devices over a network. It generates
-a "binary diff" in an efficient way by comparing MD5 checksums of 32k blocks
+a "binary diff" in an efficient way by comparing checksums of blocks
 of the local block device LOCDEV and the remote block device REMDEV.
 .PP
 This binary diff can be sent to the remote machine and applied to its block
-device DSTDEV, after which the local blockdev LOCDEV and the remote block 
+device REMDEV, after which the local blockdev LOCDEV and the remote block 
 device REMDEV are synchronized.
 .PP
 bdsync was built to do the only thing rsync isn't able to do: synchronize block
 devices.
 .PP 
+.SH "OPTIONS"
+
+.PP 
+.TP
+.B \-\-verbose
+Increase the verbosity of bdsync. Can be repeated multiple times.
+
+.TP
+.B \-\-hash DIGEST
+Choose any of openssl's digests as a hash for matching blocks on LOCDEV en REMDEV. Default is md5.
+
+.TP
+.B \-\-blocksize BLOCKSIZE
+Set the blocksize in bytes for which hashes are calculated on both LOCDEV and REMDEV. Default 4096.
+
+.TP
+.B \-\-checksum DIGEST
+Choose any of openssl's digests as a checksum for all LOCDEV data. The checksum will be written to the binary diff. Default is none.
+
 .SH "USAGE"
+
 
 .PP 
 Bdsync assumes a client is connecting to a server. The connection isn't
