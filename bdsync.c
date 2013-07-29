@@ -36,7 +36,7 @@
 #include <errno.h>
 #include <poll.h>
 
-/* max total queuing write data
+/* max total queuing write data */
 #define MAXWRQUEUE 131072
 
 /* msg size is stored in an int */
@@ -224,10 +224,10 @@ pid_t piped_child(char **command, int *f_in, int *f_out)
 
 pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue)
 {
-    int i, argc = 0;
+    int argc = 0;
     char *t, *f, *args[ARGMAX];
     pid_t pid;
-    int dash_l_set = 0, in_quote = 0;
+    int in_quote = 0;
     int f_in, f_out;
 
     command = strdup (command);
@@ -321,7 +321,7 @@ static char *msgstring[] = {
 ,  "done"
 };
 
-int msg_write (int fd, char token, char *buf, size_t len)
+int msg_write (int fd, unsigned char token, char *buf, size_t len)
 {
     u_int32_t tmp = len + 1;
     char      tbuf[sizeof (tmp)];
@@ -341,7 +341,7 @@ int msg_write (int fd, char token, char *buf, size_t len)
     return 0;
 }
 
-int add_wr_queue (struct wr_queue *pqueue, char token, char *buf, size_t len)
+int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_t len)
 {
     struct msg *pmsg;
 
@@ -366,6 +366,8 @@ int add_wr_queue (struct wr_queue *pqueue, char token, char *buf, size_t len)
     }
     pqueue->ptl  = pmsg;
     pqueue->len += (sizeof (pqueue->tlen) + len + 1);
+
+    return 0;
 }
 
 int flush_wr_queue (struct wr_queue *pqueue, int wait)
@@ -391,7 +393,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[phd->data[0]], phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(phd->data[0])], phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -471,7 +473,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
         } else {
             len = pqueue->ptl->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[pqueue->ptl->data[0]], (int)pqueue->ptl->len - 1);
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(pqueue->ptl->data[0])], (int)pqueue->ptl->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -509,7 +511,7 @@ int fill_rd_queue (struct rd_queue *pqueue)
 
 struct timeval get_rd_wait = {0, 0};
 
-int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, char *token, char **msg, size_t *msglen)
+int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsigned char *token, char **msg, size_t *msglen)
 {
     struct pollfd  pfd[2];
     struct msg     *phd;
@@ -598,7 +600,7 @@ int send_msgstring (struct wr_queue *pqueue, int msg, char *str)
     // size_t len = strlen (str);
     // char *buf = malloc (len + 1);
 
-    add_wr_queue (pqueue, msg, str, strlen (str));
+    return add_wr_queue (pqueue, msg, str, strlen (str));
 }
 
 int send_hello (struct wr_queue *pqueue, char *hello)
@@ -609,14 +611,14 @@ int send_hello (struct wr_queue *pqueue, char *hello)
 
     verbose (1, "send_hello: hello = %s, version = %s\n", hello, PROTOVER);
 
-    send_msgstring (pqueue, msg_hello, buf);
+    return send_msgstring (pqueue, msg_hello, buf);
 }
 
 int send_devfile (struct wr_queue *pqueue, char *devfile)
 {
     verbose (1, "send_devfile: devfile = %s\n", devfile);
 
-    send_msgstring (pqueue, msg_devfile, devfile);
+    return send_msgstring (pqueue, msg_devfile, devfile);
 }
 
 int send_size (struct wr_queue *pqueue, off64_t devsiz)
@@ -703,7 +705,7 @@ int send_gethash (struct wr_queue *pqueue, off64_t start, off64_t step, int nste
     return add_wr_queue (pqueue, msg_gethash, tbuf, sizeof (par));
 };
 
-int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep, char *buf, size_t siz)
+int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep, unsigned char *buf, size_t siz)
 {
     off64_t par[3];
     char    *tbuf, *cp;
@@ -726,6 +728,8 @@ int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep
     ret = add_wr_queue (pqueue, msg_hashes, tbuf, sizeof (par) + siz);
 
     free (tbuf);
+
+    return ret;
 };
 
 int send_done (struct wr_queue *pqueue)
@@ -756,11 +760,10 @@ void read_all (int fd, char *buf, size_t buflen)
     }
 };
 
-int msg_read (int fd, char **buf, size_t *buflen, char *token, char **msg, size_t *msglen, int maxlen)
+int msg_read (int fd, char **buf, size_t *buflen, unsigned char *token, char **msg, size_t *msglen, int maxlen)
 {
     u_int32_t tmp;
     char      tbuf[sizeof(tmp)];
-    off64_t   t;
 
     read_all (fd, tbuf, sizeof (tmp));
     tmp = char2int (tbuf, sizeof (tmp));
@@ -852,11 +855,12 @@ int parse_size (char *msgbuf, size_t msglen, off64_t *size)
     *size = char2int (msgbuf, sizeof (*size));
 
     verbose (1, "parse_size: size = %ld\n", (long)*size);
+
+    return 0;
 };
 
 int parse_digest (char *msgbuf, size_t msglen, int *saltsize, char **salt, const EVP_MD **md)
 {
-    int  ret;
     char *tmp;
     char *digest;
 
@@ -902,7 +906,7 @@ int parse_digest (char *msgbuf, size_t msglen, int *saltsize, char **salt, const
 
     free (tmp);
 
-    return ret;
+    return 0;
 };
 
 int parse_gethash ( char *msgbuf, size_t msglen
@@ -930,7 +934,7 @@ int parse_gethash ( char *msgbuf, size_t msglen
 };
 
 int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
-                 , off64_t *start, off64_t *step, int *nstep, char **hbuf)
+                 , off64_t *start, off64_t *step, int *nstep, unsigned char **hbuf)
 {
     off64_t par[3];
     int     i;
@@ -957,6 +961,8 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
     memcpy (*hbuf, msgbuf, *nstep * hashsize);
 
     verbose (1, "parse_hashes: start=%lld, step=%lld, nstep=%d\n", (long long)*start, (long long)*step, *nstep);
+
+    return 0;
 };
 
 int parse_done (char *msgbuf, size_t msglen)
@@ -966,15 +972,17 @@ int parse_done (char *msgbuf, size_t msglen)
         exit (1);
     }
     verbose (1, "parse_done\n");
+
+    return 0;
 };
 
 int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                , struct rd_queue *prd_queue, struct wr_queue *pwr_queue
                , int saltsize, char *salt
-               , char **retbuf, size_t *retsiz, int fd
+               , unsigned char **retbuf, size_t *retsiz, int fd
                , off64_t start, off64_t step, int nstep)
 {
-    char       *buf, *fbuf;
+    unsigned char *buf, *fbuf;
     off64_t    nrd;
     int        hashsize = EVP_MD_size (md);
     EVP_MD_CTX *ctx;
@@ -1024,12 +1032,12 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
     *retsiz = buf - *retbuf;
 
     free (fbuf);
+
+    return 0;
 };
 
 int opendev (char *dev, off64_t *siz, int flags)
 {
-    char    buf[1 + sizeof (off64_t)];
-    off64_t len;
     int     fd;
 
     fd = open (dev, flags | O_LARGEFILE);
@@ -1048,11 +1056,11 @@ int do_server (void)
 {
     char    *msg;
     size_t  msglen;
-    char    token;
+    unsigned char token;
     int     devfd, nstep;
     int     saltsize = 0;
     off64_t devsiz, start, step;
-    char    *hbuf;
+    unsigned char    *hbuf;
     size_t  hsize;
     char    *salt;
     struct  wr_queue wr_queue;
@@ -1068,7 +1076,6 @@ int do_server (void)
 
     char *devfile = NULL;
     char *hello   = NULL;
-    char *digest  = NULL;
 
     int  exp  = msg_hello;
     int  goon = 1;
@@ -1116,15 +1123,13 @@ int do_server (void)
     /* destroy md? */
 
     free (msg);
+
+    return 0;
 };
 
 int tcp_connect (char *host, char *service)
 {
-    struct sockaddr_in6 server;
-    struct servent *sp;
-    struct hostent *hp;
     int n, s;
-    FILE *fp;
     struct addrinfo hints;
     struct addrinfo *aip, *rp;
 
@@ -1139,7 +1144,7 @@ int tcp_connect (char *host, char *service)
     n = getaddrinfo (host, service, &hints, &aip);
 
     if (n != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(n));
         exit (EXIT_FAILURE);
     }
 
@@ -1160,7 +1165,7 @@ int tcp_connect (char *host, char *service)
     return s;
 }
 
-void check_token (char *f, char token, char expect)
+void check_token (char *f, unsigned char token, unsigned char expect)
 {
     if (token == expect) return;
     verbose (0, "%sUnexpected token=%s, expected=%s\n", f, msgstring[token], msgstring[expect]);
@@ -1182,12 +1187,12 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
               , int recurs)
 {
     int     hashsteps;
-    char    *rhbuf;
-    char    *lhbuf;
-    size_t  lhsize, rhsize;
+    unsigned char    *rhbuf;
+    unsigned char    *lhbuf;
+    size_t  lhsize;
     char    *msg;
-    size_t  buflen, msglen;
-    char    token;
+    size_t  msglen;
+    unsigned char    token;
 
     off64_t rstart, rstep;
     int     rnstep, hashsize;
@@ -1215,7 +1220,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
         if (*hashreqs == 0) continue;
 
         /* Get the other side's hashes */
-        get_rd_queue (pwr_queue, prd_queue,  &token, &msg, &msglen);
+        get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen);
         (*hashreqs)--;
 
         check_token ("", token, msg_hashes);
@@ -1229,7 +1234,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                    , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, rstart, rstep, rnstep);
 
         off64_t pos = rstart;
-        char    *lp = lhbuf, *rp = rhbuf;
+        unsigned char    *lp = lhbuf, *rp = rhbuf;
         int     ns = rnstep;
 
         while (ns--) {
@@ -1268,22 +1273,19 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
     }
 
     verbose (2, "hashmatch: recurs=%d\n", recurs);
+
+    return 0;
 };
 
 int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall)
 {
     char    *msg;
-    size_t  buflen, msglen;
-    char    token;
+    size_t  msglen;
+    unsigned char    token;
     char    salt[SALTSIZE];
-    int     ldevfd, maxsteps, hashsteps;
+    int     ldevfd;
     off64_t ldevsize, rdevsize;
-    off64_t hashnext, hashstep;
-    char    *lhbuf = NULL,
-            *rhbuf = NULL;
-    size_t  lhsize, rhsize;
     unsigned short devlen;
-    pid_t   pid;
     struct  wr_queue wr_queue;
     struct  rd_queue rd_queue;
     int     hashsize, cs_hs;
@@ -1316,14 +1318,11 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
 
     ldevfd = opendev (ldev, &ldevsize, O_RDONLY);
 
-    pid = do_command (command, &rd_queue, &wr_queue);
+    do_command (command, &rd_queue, &wr_queue);
 
     send_hello (&wr_queue, "CLIENT");
 
-    char *devfile = NULL;
     char *hello   = NULL;
-
-    int  exp = msg_hello;
 
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
     check_token ("", token, msg_hello);
@@ -1368,11 +1367,11 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     // write hash if requested
     {
         int len;
-        char *buf;
+        unsigned char *buf;
 
         if (cs_ctx) {
             int clen = strlen (checksum);
-            char *cp;
+            unsigned char *cp;
 
             len = cs_hs + 1 + clen + 1;
             buf = malloc (len);
@@ -1545,8 +1544,7 @@ static struct option long_options[] = {
 
 int main (int argc, char *argv[])
 {
-    char *cp, buf[4096];
-    size_t len;
+    char *cp;
 
     off64_t blocksize = 4096, hlarge, hsmall;
     int  isserver  = 0;
@@ -1558,7 +1556,6 @@ int main (int argc, char *argv[])
     OpenSSL_add_all_digests ();
 
     for (;;) {
-        int this_option_optind = optind ? optind : 1;
         int option_index = 0;
         int c;
 
