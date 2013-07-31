@@ -15,6 +15,9 @@
 // - fixed implicit 64 bit dependencies, can be compiled 32 bit as well
 // * 0.6 Jul 14 2013 Rolf Fokkens <rolf@rolffokkens.nl>
 // - asynchronous implementation to handle delay
+// * 0.7 Jul 31 2013 Rolf Fokkens <rolf@rolffokkens.nl>
+// - option to generate a checksum for the source data
+// - options to choose digests
 //
 
 #define _LARGEFILE64_SOURCE
@@ -35,6 +38,8 @@
 #include <syslog.h>
 #include <errno.h>
 #include <poll.h>
+
+#define RDAHEAD (1024*1024)
 
 /* max total queuing write data */
 #define MAXWRQUEUE 131072
@@ -994,8 +999,6 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
     verbose (1, "gen_hashes: start=%lld step=%lld nstep=%d\n"
             , (long long) start, (long long) step, nstep);
 
-    posix_fadvise64 (fd, start, 2 * nstep * step, POSIX_FADV_WILLNEED);
-
     lseek64 (fd, start, SEEK_SET);
 
     fbuf    = malloc (step);
@@ -1008,6 +1011,8 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
         verbose (3, "gen_hashes: hash: pos=%lld, len=%d\n"
                 , (long long) start, nrd);
+
+        posix_fadvise64 (fd, start + step, RDAHEAD, POSIX_FADV_WILLNEED);
 
         ctx = EVP_MD_CTX_create();
         EVP_DigestInit_ex (ctx, md, NULL);
@@ -1177,6 +1182,8 @@ void check_token (char *f, unsigned char token, unsigned char expect)
 // #define HSMALL  32768
 // #define HLARGE  32768
 
+#define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off64_t))/hashsize)
+
 int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
               , int saltsize, char *salt
               , size_t devsize
@@ -1261,7 +1268,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                 } else {
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
                     int tnstep = rstep / nextstep;
-                    if (tnstep > (((MSGMAX)/hashsize)-1)) tnstep = (((MSGMAX)/hashsize)-1);
+                    if (tnstep > MAXHASHES (hashsize)) tnstep = MAXHASHES (hashsize);
                     hashmatch (md, NULL, saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, nextstep, nextstep, tnstep, hashreqs, recurs + 1);
                 }
             }
@@ -1349,7 +1356,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
 
     int hashreqs = 0;
 
-    hashmatch (dg_md, cs_ctx, sizeof (salt), salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, hlarge, hsmall, (((MSGMAX)/hashsize)-1), &hashreqs, 0);
+    hashmatch (dg_md, cs_ctx, sizeof (salt), salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, 0);
 
     send_done (&wr_queue);
     get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen);
@@ -1595,7 +1602,8 @@ int main (int argc, char *argv[])
     vhandler = verbose_printf;
 
     hsmall = blocksize;
-    hlarge = 64 * hsmall;
+    // hlarge = 64 * hsmall;
+    hlarge = hsmall;
 
     if (checksum && (strlen (checksum) > 127)) {
         verbose (0, "paramater too long for option --checksum\n");
