@@ -626,15 +626,15 @@ int send_devfile (struct wr_queue *pqueue, char *devfile)
     return send_msgstring (pqueue, msg_devfile, devfile);
 }
 
-int send_size (struct wr_queue *pqueue, off64_t devsiz)
+int send_size (struct wr_queue *pqueue, off64_t devsize)
 {
-    char tbuf[sizeof (devsiz)];
+    char tbuf[sizeof (devsize)];
 
-    verbose (1, "send_size: devsiz = %lld\n", (long long)devsiz);
+    verbose (1, "send_size: devsiz = %lld\n", (long long)devsize);
 
-    int2char (tbuf, devsiz, sizeof (devsiz));
+    int2char (tbuf, devsize, sizeof (devsize));
 
-    return add_wr_queue (pqueue, msg_size, tbuf, sizeof (devsiz));
+    return add_wr_queue (pqueue, msg_size, tbuf, sizeof (devsize));
 };
 
 char *bytes2str (size_t s, char *p)
@@ -985,19 +985,21 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                , struct rd_queue *prd_queue, struct wr_queue *pwr_queue
                , int saltsize, char *salt
                , unsigned char **retbuf, size_t *retsiz, int fd
+               , off64_t devsize
                , off64_t start, off64_t step, int nstep)
 {
     unsigned char *buf, *fbuf;
-    off64_t    nrd;
+    off64_t    nrd, lenend;
     int        hashsize = EVP_MD_size (md);
     EVP_MD_CTX *ctx;
 
     *retsiz = nstep * hashsize;
     buf     = malloc (nstep * hashsize);
     *retbuf = buf;
+    lenend  = devsize - start;
 
-    verbose (1, "gen_hashes: start=%lld step=%lld nstep=%d\n"
-            , (long long) start, (long long) step, nstep);
+    verbose (1, "gen_hashes: start=%lld step=%d nstep=%d\n"
+            , (long long) start, step, nstep);
 
     lseek64 (fd, start, SEEK_SET);
 
@@ -1007,7 +1009,19 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
         flush_wr_queue (pwr_queue, 0);
         fill_rd_queue (prd_queue);
 
+        if (lenend == 0) {
+            verbose (0, "gen_hashes: lenend = 0\n");
+            exit (1);
+        }
+
+        if (step > lenend) step = lenend;
         nrd = read (fd, fbuf, step);
+
+        if (nrd != step) {
+            verbose (0, "gen_hashes: nrd (%lld) != step (%d)\n"
+                      , (long long)nrd, step);
+            exit (1);
+        }
 
         verbose (3, "gen_hashes: hash: pos=%lld, len=%d\n"
                 , (long long) start, nrd);
@@ -1030,9 +1044,9 @@ int gen_hashes ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
         buf += hashsize;
 
-        if (nrd != step) break;
         nstep--;
-        start += step;
+        start  += step;
+        lenend -= step;
     }
     *retsiz = buf - *retbuf;
 
@@ -1064,7 +1078,7 @@ int do_server (void)
     unsigned char token;
     int     devfd, nstep;
     int     saltsize = 0;
-    off64_t devsiz, start, step;
+    off64_t devsize, start, step;
     unsigned char    *hbuf;
     size_t  hsize;
     char    *salt;
@@ -1101,15 +1115,15 @@ int do_server (void)
             break;
         case msg_devfile:
             parse_devfile (msg, msglen, &devfile);
-            devfd = opendev (devfile, &devsiz, O_RDONLY);
-            send_size (&wr_queue, devsiz);
+            devfd = opendev (devfile, &devsize, O_RDONLY);
+            send_size (&wr_queue, devsize);
             break;
         case msg_digest:
             parse_digest (msg, msglen, &saltsize, &salt, &md);
             break;
         case msg_gethash:
             parse_gethash (msg, msglen, &start, &step, &nstep);
-            gen_hashes (md, NULL, &rd_queue, &wr_queue, saltsize, salt, &hbuf, &hsize, devfd, start, step, nstep);
+            gen_hashes (md, NULL, &rd_queue, &wr_queue, saltsize, salt, &hbuf, &hsize, devfd, devsize, start, step, nstep);
             send_hashes (&wr_queue, start, step, nstep, hbuf, hsize);
             free (hbuf);
             break;
@@ -1238,7 +1252,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
         /* Generate our own list of hashes */
         gen_hashes (md, (rstep == hashstep ? cs_ctx : NULL)
-                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, rstart, rstep, rnstep);
+                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, devsize, rstart, rstep, rnstep);
 
         off64_t pos = rstart;
         unsigned char    *lp = lhbuf, *rp = rhbuf;
@@ -1252,17 +1266,27 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
                 if (rstep == nextstep) {
                     /* HSMALL? Then write the data */
-                    unsigned short blen = tend - pos;
-                    char *fbuf = malloc (blen);
+                    off64_t        len   = tend - pos;
+                    off64_t        tpos  = pos;
+                    unsigned short blen  = (len > 32768 ? 32768 : len);
+                    char           *fbuf = malloc (blen);
 
-                    verbose ( 3, "diff: %lld - %lld\n"
-                            , (long long)pos, (long long)tend - 1);
+                    while (len) {
+                        if (blen > len) blen = len;
 
-                    pread (devfd, fbuf, blen, pos);
+                        verbose ( 3, "diff: %lld - %lld\n"
+                                , (long long)tpos, (long long)(tpos + blen - 1));
 
-                    fwrite (&pos,  sizeof (pos),  1, stdout);
-                    fwrite (&blen, sizeof (blen), 1, stdout);
-                    fwrite (fbuf,  1, blen,          stdout);
+
+                        pread (devfd, fbuf, blen, tpos);
+
+                        fwrite (&tpos, sizeof (tpos), 1, stdout);
+                        fwrite (&blen, sizeof (blen), 1, stdout);
+                        fwrite (fbuf,  1, blen,          stdout);
+
+                        len  -= blen;
+                        tpos += blen;
+                    }
 
                     free (fbuf);
                 } else {
@@ -1546,6 +1570,7 @@ static struct option long_options[] = {
     , {"blocksize", required_argument, 0, 'b' }
     , {"hash",      required_argument, 0, 'd' }
     , {"checksum",  required_argument, 0, 'c' }
+    , {"twopass",   no_argument,       0, 't' }
     , {0,           0,                 0,  0  }
 };
 
@@ -1556,6 +1581,7 @@ int main (int argc, char *argv[])
     off64_t blocksize = 4096, hlarge, hsmall;
     int  isserver  = 0;
     int  ispatch   = 0;
+    int  twopass   = 0;
     char *patchdev = NULL;
     char *hash     = NULL;
     char *checksum = NULL;
@@ -1566,7 +1592,7 @@ int main (int argc, char *argv[])
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:t"
                         , long_options, &option_index);
 
         if (c == -1) break;
@@ -1595,6 +1621,9 @@ int main (int argc, char *argv[])
         case 'c':
             checksum = optarg;
             break;
+        case 't':
+            twopass = 1;
+            break;
         case '?':
             return 1;
         }
@@ -1602,8 +1631,7 @@ int main (int argc, char *argv[])
     vhandler = verbose_printf;
 
     hsmall = blocksize;
-    // hlarge = 64 * hsmall;
-    hlarge = hsmall;
+    hlarge = (twopass ? 64 * hsmall : hsmall);
 
     if (checksum && (strlen (checksum) > 127)) {
         verbose (0, "paramater too long for option --checksum\n");

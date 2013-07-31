@@ -42,8 +42,12 @@ Set the blocksize in bytes for which hashes are calculated on both LOCDEV and RE
 .B \-\-checksum DIGEST
 Choose any of openssl's digests as a checksum for all LOCDEV data. The checksum will be written to the binary diff. Default is none.
 
-.SH "USAGE"
+.TP
+.B \-\-twopass
+Makes bdsync first match checksums using large blocks (64 * BLOCKSIZE) and then match checksums using small blocks (BLOCKSIZE). This may reduce systemcall overhead and networktraffic
+when the "binary diff" has limited size.
 
+.SH "USAGE"
 
 .PP 
 Bdsync assumes a client is connecting to a server. The connection isn't
