@@ -343,6 +343,8 @@ static char *msgstring[] = {
 ,  "gethashes"
 ,  "hashes"
 ,  "done"
+,  "getblock"
+,  "block"
 };
 
 int msg_write (int fd, unsigned char token, char *buf, size_t len)
@@ -766,7 +768,7 @@ int send_getblock (struct wr_queue *pqueue, off64_t pos, off64_t len)
     par[0] = pos;
     par[1] = len;
 
-    verbose (1, "send_gethashes: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
+    verbose (1, "send_getblock: pos=%lld len=%lld\n", (long long)pos, (long long)len);
 
     for (i = 0, cp = tbuf; i < 2; i++, cp += sizeof (par[0])) {
         int2char (cp, par[i], sizeof (par[0]));
@@ -779,6 +781,8 @@ int send_block (struct wr_queue *pqueue, int fd, off64_t pos, off64_t len)
 {
     char    *tbuf, *cp;
     int     ret;
+
+    verbose (1, "send_block: pos=%lld len=%lld\n", (long long)pos, (long long)len);
 
     tbuf = malloc (sizeof (pos) + len);
     cp   = tbuf;
@@ -1031,6 +1035,8 @@ int parse_block ( char *msgbuf, size_t msglen
     *pos    = char2int (msgbuf, sizeof (*pos));
     *len    = msglen - sizeof (*pos);
     *pblock = msgbuf + sizeof (*pos);
+
+    verbose (1, "parse_block: pos=%lld len=%lld\n", (long long)*pos, (long long)*len);
 
     return 0;
 };
@@ -1299,7 +1305,7 @@ void check_token (char *f, unsigned char token, unsigned char expect)
 
 #define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off64_t))/hashsize)
 
-int write_block (off64_t pos, off64_t len, char *pblock)
+int write_block (off64_t pos, unsigned short len, char *pblock)
 {
     fwrite (&pos, sizeof (pos), 1, stdout);
     fwrite (&len, sizeof (len), 1, stdout);
@@ -1335,7 +1341,8 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
     hashsize = EVP_MD_size (md);
 
-    while ((hashstart < hashend) || ((recurs == 0) && (*hashreqs != 0))) {
+    while (   (hashstart < hashend)
+           || ((recurs == 0) && ((*hashreqs != 0) || (*blockreqs != 0)))) {
         while ((hashstart < hashend) && (recurs || *hashreqs < 32)) {
             hashsteps = (hashend + hashstep - 1 - hashstart) / hashstep;
             if (hashsteps > maxsteps) hashsteps = maxsteps;
@@ -1346,7 +1353,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
             hashstart += hashsteps * hashstep;
             (*hashreqs)++;
         }
-        verbose (3, "hashmatch: hashreqs=%d\n", *hashreqs);
+        verbose (3, "hashmatch: hashreqs=%d blockreqs=%d\n", *hashreqs, *blockreqs);
 
         if (recurs) break;
 
@@ -1491,7 +1498,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
     check_token ("", token, msg_hello);
     parse_hello (msg, msglen, &hello);
-    send_devfile (&wr_queue, (remblocks ? ldev : rdev));
+    send_devfile (&wr_queue, rdev);
     free (msg);
 
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
@@ -1503,11 +1510,13 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
         exit (1);
     }
 
-    devlen = strlen (rdev);
+    char *tdev = (remblocks ? ldev : rdev);
+
+    devlen = strlen (tdev);
     printf ("%s\n", ARCHVER);
     fwrite (&rdevsize,  sizeof (rdevsize),  1, stdout);
     fwrite (&devlen,    sizeof (devlen),    1, stdout);
-    fwrite (rdev,       1,             devlen, stdout);
+    fwrite (tdev,       1,             devlen, stdout);
 
     send_digest (&wr_queue, sizeof (salt), salt, digest);
 
@@ -1701,7 +1710,7 @@ static struct option long_options[] = {
     , {"patch",     optional_argument, 0, 'p' }
     , {"verbose",   no_argument,       0, 'v' }
     , {"blocksize", required_argument, 0, 'b' }
-    , {"hash",      required_argument, 0, 'd' }
+    , {"hash",      required_argument, 0, 'h' }
     , {"checksum",  required_argument, 0, 'c' }
     , {"twopass",   no_argument,       0, 't' }
     , {"remblocks", no_argument,       0, 'r' }
@@ -1727,7 +1736,7 @@ int main (int argc, char *argv[])
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:t"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:tr"
                         , long_options, &option_index);
 
         if (c == -1) break;
