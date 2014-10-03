@@ -25,7 +25,25 @@ devices.
 .PP 
 .SH "OPTIONS"
 
+      {"server",    no_argument,       0, 's' }
+    , {"patch",     optional_argument, 0, 'p' }
+    , {"verbose",   no_argument,       0, 'v' }
+    , {"blocksize", required_argument, 0, 'b' }
+    , {"hash",      required_argument, 0, 'd' }
+    , {"checksum",  required_argument, 0, 'c' }
+    , {"twopass",   no_argument,       0, 't' }
+    , {"remblocks", no_argument,       0, 'r' }
+    , {0,           0,                 0,  0  }
+
 .PP 
+.TP
+.B \-\-server
+Start bdsync as a server. No further arguments are accepted, all controll is done by standard input and standard output
+
+.TP
+.B \-\-patch [DEVICE]
+Make bdsync "patch" a device by applying a bdsync file read from standard input. The device will be determined from the bdsync data unless an (optional) device name DEVICE is specified
+
 .TP
 .B \-\-verbose
 Increase the verbosity of bdsync. Can be repeated multiple times.
@@ -46,6 +64,10 @@ Choose any of openssl's digests as a checksum for all LOCDEV data. The checksum 
 .B \-\-twopass
 Makes bdsync first match checksums using large blocks (64 * BLOCKSIZE) and then match checksums using small blocks (BLOCKSIZE). This may reduce systemcall overhead and networktraffic
 when the "binary diff" has limited size.
+
+.TP
+.B \-\-remblocks
+Makes bdsync (in client mode) write the remote blocks to standard output instead of the local blocks that differ.
 
 .SH "USAGE"
 

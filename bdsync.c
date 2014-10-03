@@ -20,6 +20,23 @@
 // - options to choose digests
 //
 
+// Brief protocol notes:
+//
+// Client: msg_hello "CLIENT" PROTOVER
+// Server: msg_hello "SERVER" PROTOVER
+//
+// Client: msg_devfile DEVFILE
+// Server: msg_size DEVSIZE
+//
+// Client: msg_digest SALTSIZE SALT DIGEST
+//
+// Client: msg_gethashes
+// Server: msg_hashes
+//
+// Client: msg_gethashes
+// Server: msg_hashes
+//
+
 #define _LARGEFILE64_SOURCE
 
 #include <sys/types.h>
@@ -51,7 +68,7 @@
 #define SALTSIZE 32
 
 #define ARCHVER "BDSYNC 0.3"
-#define PROTOVER "0.4"
+#define PROTOVER "0.5"
 
 void set_blocking(int fd)
 {
@@ -309,9 +326,11 @@ enum messages {
 ,   msg_devfile
 ,   msg_size
 ,   msg_digest
-,   msg_gethash
+,   msg_gethashes
 ,   msg_hashes
 ,   msg_done
+,   msg_getblock
+,   msg_block
 ,   msg_max
 };
 
@@ -321,7 +340,7 @@ static char *msgstring[] = {
 ,  "devfile"
 ,  "size"
 ,  "digest"
-,  "gethash"
+,  "gethashes"
 ,  "hashes"
 ,  "done"
 };
@@ -690,7 +709,7 @@ int send_digest (struct wr_queue *pqueue, int saltsize, char *salt, char *digest
     return ret;
 }
 
-int send_gethash (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep)
+int send_gethashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep)
 {
     off64_t par[3];
     char    tbuf[sizeof (par)];
@@ -701,13 +720,13 @@ int send_gethash (struct wr_queue *pqueue, off64_t start, off64_t step, int nste
     par[1] = step;
     par[2] = nstep;
 
-    verbose (1, "send_gethash: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
+    verbose (1, "send_gethashes: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
 
     for (i = 0, cp = tbuf; i < 3; i++, cp += sizeof (par[0])) {
         int2char (cp, par[i], sizeof (par[0]));
     }
 
-    return add_wr_queue (pqueue, msg_gethash, tbuf, sizeof (par));
+    return add_wr_queue (pqueue, msg_gethashes, tbuf, sizeof (par));
 };
 
 int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep, unsigned char *buf, size_t siz)
@@ -731,6 +750,45 @@ int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep
     memcpy (cp, buf, siz);
 
     ret = add_wr_queue (pqueue, msg_hashes, tbuf, sizeof (par) + siz);
+
+    free (tbuf);
+
+    return ret;
+};
+
+int send_getblock (struct wr_queue *pqueue, off64_t pos, off64_t len)
+{
+    off64_t par[2];
+    char    tbuf[sizeof (par)];
+    char    *cp;
+    int     i;
+
+    par[0] = pos;
+    par[1] = len;
+
+    verbose (1, "send_gethashes: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
+
+    for (i = 0, cp = tbuf; i < 2; i++, cp += sizeof (par[0])) {
+        int2char (cp, par[i], sizeof (par[0]));
+    }
+
+    return add_wr_queue (pqueue, msg_getblock, tbuf, sizeof (par));
+};
+
+int send_block (struct wr_queue *pqueue, int fd, off64_t pos, off64_t len)
+{
+    char    *tbuf, *cp;
+    int     ret;
+
+    tbuf = malloc (sizeof (pos) + len);
+    cp   = tbuf;
+
+    int2char (cp, pos, sizeof (pos));
+    cp += sizeof (pos);
+
+    pread (fd, cp, len, pos);
+
+    ret = add_wr_queue (pqueue, msg_block, tbuf, sizeof (pos) + len);
 
     free (tbuf);
 
@@ -914,14 +972,14 @@ int parse_digest (char *msgbuf, size_t msglen, int *saltsize, char **salt, const
     return 0;
 };
 
-int parse_gethash ( char *msgbuf, size_t msglen
-                  , off64_t *start, off64_t *step, int *nstep)
+int parse_gethashes ( char *msgbuf, size_t msglen
+                    , off64_t *start, off64_t *step, int *nstep)
 {
     off64_t par[3];
     int     i;
 
     if (msglen != sizeof (par)) {
-        verbose (0, "parse_gethash: bad message size %d\n", (int)msglen);
+        verbose (0, "parse_gethashes: bad message size %d\n", (int)msglen);
         exit (1);
     }
 
@@ -933,7 +991,46 @@ int parse_gethash ( char *msgbuf, size_t msglen
     *step  = par[1];
     *nstep = par[2];
 
-    verbose (1, "parse_gethash: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
+    verbose (1, "parse_gethashes: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
+
+    return 0;
+};
+
+int parse_getblock ( char *msgbuf, size_t msglen
+                   , off64_t *pos, off64_t *len)
+{
+    off64_t par[2];
+    int     i;
+
+    if (msglen != sizeof (par)) {
+        verbose (0, "parse_getblock: bad message size %d\n", (int)msglen);
+        exit (1);
+    }
+
+    for (i = 0; i < 2; i++, msgbuf += sizeof (par[0])) {
+        par[i] = char2int (msgbuf, sizeof (par[0]));
+    }
+
+    *pos = par[0];
+    *len = par[1];
+
+    verbose (1, "parse_getblock: pos=%lld len=%lld\n", (long long)par[0], (long long)par[1]);
+
+    return 0;
+};
+
+int parse_block ( char *msgbuf, size_t msglen
+                , off64_t *pos, off64_t *len, char **pblock)
+{
+    /* there should at least 1 byte in the block */
+    if (msglen < sizeof (*pos) + 1) {
+        verbose (0, "parse_getblock: bad message size %d\n", (int)msglen);
+        exit (1);
+    }
+
+    *pos    = char2int (msgbuf, sizeof (*pos));
+    *len    = msglen - sizeof (*pos);
+    *pblock = msgbuf + sizeof (*pos);
 
     return 0;
 };
@@ -1121,11 +1218,15 @@ int do_server (void)
         case msg_digest:
             parse_digest (msg, msglen, &saltsize, &salt, &md);
             break;
-        case msg_gethash:
-            parse_gethash (msg, msglen, &start, &step, &nstep);
+        case msg_gethashes:
+            parse_gethashes (msg, msglen, &start, &step, &nstep);
             gen_hashes (md, NULL, &rd_queue, &wr_queue, saltsize, salt, &hbuf, &hsize, devfd, devsize, start, step, nstep);
             send_hashes (&wr_queue, start, step, nstep, hbuf, hsize);
             free (hbuf);
+            break;
+        case msg_getblock:
+            parse_getblock (msg, msglen, &start, &step);
+            send_block (&wr_queue, devfd, start, step);
             break;
         case msg_done:
             parse_done (msg, msglen);
@@ -1198,13 +1299,24 @@ void check_token (char *f, unsigned char token, unsigned char expect)
 
 #define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off64_t))/hashsize)
 
+int write_block (off64_t pos, off64_t len, char *pblock)
+{
+    fwrite (&pos, sizeof (pos), 1, stdout);
+    fwrite (&len, sizeof (len), 1, stdout);
+    fwrite (pblock,  1, len,       stdout);
+
+    return 0;
+}
+
 int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
+              , int remblocks
               , int saltsize, char *salt
               , size_t devsize
               , struct rd_queue *prd_queue, struct wr_queue *pwr_queue, int devfd
               , off64_t hashstart, off64_t hashend, off64_t hashstep, off64_t nextstep
               , int maxsteps
               , int *hashreqs
+              , int *blockreqs
               , int recurs)
 {
     int     hashsteps;
@@ -1230,7 +1342,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
             if (!hashsteps) break;
 
             /* Put the other side to work generating hashes */
-            send_gethash (pwr_queue, hashstart, hashstep, hashsteps);
+            send_gethashes (pwr_queue, hashstart, hashstep, hashsteps);
             hashstart += hashsteps * hashstep;
             (*hashreqs)++;
         }
@@ -1238,13 +1350,32 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
 
         if (recurs) break;
 
-        if (*hashreqs == 0) continue;
+        token = 0;
 
-        /* Get the other side's hashes */
-        get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen);
-        (*hashreqs)--;
+        while (*hashreqs || *blockreqs) {
+            get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen);
+            /* Get the other side's hashes or blocks */
+            if (token == msg_hashes) break;
+
+            /* We handle blocks within this loop */
+            check_token ("", token, msg_block);
+            (*blockreqs)--;
+
+            char *pblock;
+            off64_t pos, len;
+
+            parse_block (msg, msglen, &pos, &len, &pblock);
+            write_block (pos, len, pblock);
+
+            free (msg);
+
+            token = 0;
+        }
+
+        if (!token) continue;
 
         check_token ("", token, msg_hashes);
+        (*hashreqs)--;
 
         parse_hashes (hashsize, msg, msglen, &rstart, &rstep, &rnstep, &rhbuf);
 
@@ -1277,13 +1408,15 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                         verbose ( 3, "diff: %lld - %lld\n"
                                 , (long long)tpos, (long long)(tpos + blen - 1));
 
+                        if (remblocks) {
+                            /* Get the blocks from the server */
+                            send_getblock (pwr_queue, tpos, blen);
+                            (*blockreqs)++;
+                        } else {
+                            pread (devfd, fbuf, blen, tpos);
 
-                        pread (devfd, fbuf, blen, tpos);
-
-                        fwrite (&tpos, sizeof (tpos), 1, stdout);
-                        fwrite (&blen, sizeof (blen), 1, stdout);
-                        fwrite (fbuf,  1, blen,          stdout);
-
+                            write_block (tpos, len, fbuf);
+                        }
                         len  -= blen;
                         tpos += blen;
                     }
@@ -1293,7 +1426,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
                     int tnstep = rstep / nextstep;
                     if (tnstep > MAXHASHES (hashsize)) tnstep = MAXHASHES (hashsize);
-                    hashmatch (md, NULL, saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, nextstep, nextstep, tnstep, hashreqs, recurs + 1);
+                    hashmatch (md, NULL, remblocks, saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, nextstep, nextstep, tnstep, hashreqs, blockreqs, recurs + 1);
                 }
             }
             lp  += hashsize;
@@ -1308,7 +1441,7 @@ int hashmatch ( const EVP_MD *md, EVP_MD_CTX *cs_ctx
     return 0;
 };
 
-int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall)
+int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall, int remblocks)
 {
     char    *msg;
     size_t  msglen;
@@ -1358,7 +1491,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
     check_token ("", token, msg_hello);
     parse_hello (msg, msglen, &hello);
-    send_devfile (&wr_queue, rdev);
+    send_devfile (&wr_queue, (remblocks ? ldev : rdev));
     free (msg);
 
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
@@ -1378,9 +1511,9 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
 
     send_digest (&wr_queue, sizeof (salt), salt, digest);
 
-    int hashreqs = 0;
+    int hashreqs = 0, blockreqs = 0;
 
-    hashmatch (dg_md, cs_ctx, sizeof (salt), salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, 0);
+    hashmatch (dg_md, cs_ctx, remblocks, sizeof (salt), salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, &blockreqs, 0);
 
     send_done (&wr_queue);
     get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen);
@@ -1571,6 +1704,7 @@ static struct option long_options[] = {
     , {"hash",      required_argument, 0, 'd' }
     , {"checksum",  required_argument, 0, 'c' }
     , {"twopass",   no_argument,       0, 't' }
+    , {"remblocks", no_argument,       0, 'r' }
     , {0,           0,                 0,  0  }
 };
 
@@ -1582,6 +1716,7 @@ int main (int argc, char *argv[])
     int  isserver  = 0;
     int  ispatch   = 0;
     int  twopass   = 0;
+    int  remblocks = 0;
     char *patchdev = NULL;
     char *hash     = NULL;
     char *checksum = NULL;
@@ -1623,6 +1758,9 @@ int main (int argc, char *argv[])
             break;
         case 't':
             twopass = 1;
+            break;
+        case 'r':
+            remblocks = 1;
             break;
         case '?':
             return 1;
@@ -1679,5 +1817,5 @@ int main (int argc, char *argv[])
 
     if (!hash) hash = "md5";
 
-    return do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall);
+    return do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remblocks);
 }
