@@ -1758,6 +1758,8 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
         fwrite (buf, len, 1, stdout);
 
         free (buf);
+    } else {
+        fwrite ("", 1, 1, stdout);
     }
 
     verbose (2, "do_client: get_rd_wait = %d.%06d\n", get_rd_wait.tv_sec, get_rd_wait.tv_usec);
