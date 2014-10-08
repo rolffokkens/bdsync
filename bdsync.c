@@ -25,7 +25,7 @@
 // Client: msg_hello "CLIENT" PROTOVER
 // Server: msg_hello "SERVER" PROTOVER
 //
-// Client: msg_devfile DEVFILE
+// Client: msg_devfile DEVSIZE DEVFILE
 // Server: msg_size DEVSIZE
 //
 // Client: msg_digests SALTSIZE SALT DIGEST [CHECKSUM]
@@ -216,7 +216,24 @@ struct cs_state *init_checksum (const char *checksum)
     return state;
 }
 
-int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, unsigned char *buf)
+int vpread (int devfd, void *buf, off64_t len, off64_t pos, off64_t devsize)
+{
+    off64_t rlen = len;
+    int ret      = 0;
+    char *cbuf   = (char *)buf;
+
+    if (pos + rlen > devsize) {
+        rlen = devsize - pos;
+
+        if (rlen < 0) rlen = 0;
+    }
+    if (rlen) ret = pread64 (devfd, cbuf, rlen, pos);
+    if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
+
+    return ret;
+}
+
+int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, unsigned char *buf, off64_t devsize)
 {
     if (!state) return 0;
 
@@ -230,7 +247,7 @@ int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, u
             verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
                     , (long long) state->nxtpos, blen);
 
-            nrd = pread (fd, fbuf, blen, state->nxtpos);
+            nrd = vpread (fd, fbuf, blen, state->nxtpos, devsize);
 
             if (nrd != blen) {
                 verbose (0, "update_checksum: nrd (%lld) != blen (%d)\n"
@@ -750,7 +767,7 @@ int send_size (struct wr_queue *pqueue, off64_t devsize)
 {
     char tbuf[sizeof (devsize)];
 
-    verbose (1, "send_size: devsiz = %lld\n", (long long)devsize);
+    verbose (1, "send_size: devsize = %lld\n", (long long)devsize);
 
     int2char (tbuf, devsize, sizeof (devsize));
 
@@ -1301,7 +1318,6 @@ int gen_hashes ( const EVP_MD *md
     *retsiz = nstep * hashsize;
     buf     = malloc (nstep * hashsize);
     *retbuf = buf;
-    lenend  = devsize - start;
 
     verbose (1, "gen_hashes: start=%lld step=%d nstep=%d\n"
             , (long long) start, step, nstep);
@@ -1312,25 +1328,14 @@ int gen_hashes ( const EVP_MD *md
         flush_wr_queue (pwr_queue, 0);
         fill_rd_queue (prd_queue);
 
-        if (lenend == 0) {
-            verbose (0, "gen_hashes: lenend = 0\n");
-            exit (1);
-        }
-
-        if (step > lenend) step = lenend;
-
-        nrd = pread (fd, fbuf, step, start);
-
-        if (nrd != step) {
-            verbose (0, "gen_hashes: nrd (%lld) != step (%d)\n"
-                      , (long long)nrd, (int)step);
-            exit (1);
-        }
+        nrd = vpread (fd, fbuf, step, start, devsize);
 
         verbose (3, "gen_hashes: hash: pos=%lld, len=%d\n"
                 , (long long) start, nrd);
 
+/* Kills performance; really slow syscall:
         posix_fadvise64 (fd, start + step, RDAHEAD, POSIX_FADV_WILLNEED);
+*/
 
         dg_ctx = EVP_MD_CTX_create();
         EVP_DigestInit_ex (dg_ctx, md, NULL);
@@ -1339,7 +1344,7 @@ int gen_hashes ( const EVP_MD *md
         EVP_DigestFinal_ex (dg_ctx, buf, NULL);
         EVP_MD_CTX_destroy (dg_ctx);
 
-        update_checksum (cs_state, start, fd, step, fbuf);
+        update_checksum (cs_state, start, fd, step, fbuf, devsize);
 
         buf += hashsize;
 
@@ -1517,9 +1522,9 @@ int write_block (off64_t pos, unsigned short len, char *pblock)
 
 int hashmatch ( const EVP_MD *md
               , struct cs_state *cs_state
-              , int remblocks
+              , int remdata
               , int saltsize, unsigned char *salt
-              , size_t devsize
+              , off64_t ldevsize, off64_t rdevsize
               , struct rd_queue *prd_queue, struct wr_queue *pwr_queue, int devfd
               , off64_t hashstart, off64_t hashend, off64_t hashstep, off64_t nextstep
               , int maxsteps
@@ -1534,11 +1539,14 @@ int hashmatch ( const EVP_MD *md
     char          *msg;
     size_t        msglen;
     unsigned char token;
-    off64_t       rstart, rstep;
+    off64_t       rstart, rstep, mdevsize;
     int           rnstep, hashsize;
 
-    verbose (2, "hashmatch: recurs=%d hashstart=%lld hashend=%lld hashstep=%lld maxsteps=%d\n"
-            , recurs, (long long)hashstart, (long long)hashend, (long long)hashstep, maxsteps);
+    verbose (2, "hashmatch: recurs=%d hashstart=%lld hashend=%lld hashstep=%lld maxsteps=%d devsize=%lld vdevsize=%lld\n"
+            , recurs, (long long)hashstart, (long long)hashend, (long long)hashstep, maxsteps
+            , (long long)ldevsize, (long long)rdevsize);
+
+    mdevsize = (rdevsize > ldevsize ? rdevsize : ldevsize);
 
     hashsize = EVP_MD_size (md);
 
@@ -1591,7 +1599,7 @@ int hashmatch ( const EVP_MD *md
 
         /* Generate our own list of hashes */
         gen_hashes (md, (rstep == hashstep ? cs_state : NULL)
-                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, devsize, rstart, rstep, rnstep);
+                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, ldevsize, rstart, rstep, rnstep);
 
         off64_t       pos = rstart;
         unsigned char *lp = lhbuf, *rp = rhbuf;
@@ -1601,7 +1609,7 @@ int hashmatch ( const EVP_MD *md
             if (bcmp (lp, rp, hashsize)) {
                 off64_t tend = pos + rstep;
 
-                if (tend > devsize) tend = devsize;
+                if (tend > mdevsize) tend = mdevsize;
 
                 if (rstep == nextstep) {
                     /* HSMALL? Then write the data */
@@ -1616,14 +1624,20 @@ int hashmatch ( const EVP_MD *md
                         verbose ( 3, "diff: %lld - %lld\n"
                                 , (long long)tpos, (long long)(tpos + blen - 1));
 
-                        if (remblocks) {
+                        if (remdata) {
                             /* Get the blocks from the server */
-                            send_getblock (pwr_queue, tpos, blen);
+                            off64_t tlen = rdevsize - pos;
+                            if (tlen > blen) tlen = blen;
+
+                            send_getblock (pwr_queue, tpos, tlen);
                             (*blockreqs)++;
                         } else {
-                            pread (devfd, fbuf, blen, tpos);
+                            off64_t tlen = ldevsize - pos;
+                            if (tlen > blen) tlen = blen;
 
-                            write_block (tpos, len, fbuf);
+                            vpread (devfd, fbuf, tlen, tpos, ldevsize);
+
+                            write_block (tpos, tlen, fbuf);
                         }
                         len  -= blen;
                         tpos += blen;
@@ -1634,7 +1648,7 @@ int hashmatch ( const EVP_MD *md
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
                     int tnstep = rstep / nextstep;
                     if (tnstep > MAXHASHES (hashsize)) tnstep = MAXHASHES (hashsize);
-                    hashmatch (md, NULL, remblocks, saltsize, salt, devsize, prd_queue, pwr_queue, devfd, pos, tend, nextstep, nextstep, tnstep, hashreqs, blockreqs, recurs + 1);
+                    hashmatch (md, NULL, remdata, saltsize, salt, ldevsize, rdevsize, prd_queue, pwr_queue, devfd, pos, tend, nextstep, nextstep, tnstep, hashreqs, blockreqs, recurs + 1);
                 }
             }
             lp  += hashsize;
@@ -1649,14 +1663,14 @@ int hashmatch ( const EVP_MD *md
     return 0;
 };
 
-int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall, int remblocks, int fixedsalt)
+int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall, int remdata, int fixedsalt, int diffsize)
 {
     char            *msg;
     size_t          msglen;
     unsigned char   token;
     unsigned char   salt[SALTSIZE];
     int             ldevfd;
-    off64_t         ldevsize, rdevsize;
+    off64_t         ldevsize, rdevsize, mdevsize;
     unsigned short  devlen;
     struct          wr_queue wr_queue;
     struct          rd_queue rd_queue;
@@ -1670,7 +1684,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
         exit (1);
     }
 
-    if (checksum && !remblocks) {
+    if (checksum && !remdata) {
         cs_state = init_checksum (checksum);
     } else {
         cs_state = NULL;
@@ -1698,24 +1712,25 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     check_token ("", token, msg_size);
     parse_size (msg, msglen, &rdevsize);
     free (msg);
-    if (rdevsize != ldevsize) {
+    if (!diffsize && rdevsize != ldevsize) {
         verbose (0, "Different sizes local=%lld remote=%lld\n", ldevsize, rdevsize);
         exit (1);
     }
+    mdevsize = (rdevsize > ldevsize ? rdevsize : ldevsize);
 
-    char *tdev = (remblocks ? ldev : rdev);
+    char *tdev = (remdata ? ldev : rdev);
 
     devlen = strlen (tdev);
     printf ("%s\n", ARCHVER);
-    fwrite (&rdevsize,  sizeof (rdevsize),  1, stdout);
-    fwrite (&devlen,    sizeof (devlen),    1, stdout);
-    fwrite (tdev,       1,             devlen, stdout);
+    fwrite ((remdata ? &rdevsize : &ldevsize),  sizeof (rdevsize),  1, stdout);
+    fwrite (&devlen,                            sizeof (devlen),    1, stdout);
+    fwrite (tdev,                               1,             devlen, stdout);
 
-    send_digests (&wr_queue, sizeof (salt), salt, digest, (remblocks ? checksum : NULL));
+    send_digests (&wr_queue, sizeof (salt), salt, digest, (remdata ? checksum : NULL));
 
     int hashreqs = 0, blockreqs = 0;
 
-    hashmatch (dg_md, cs_state, remblocks, sizeof (salt), salt, ldevsize, &rd_queue, &wr_queue, ldevfd, 0, ldevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, &blockreqs, 0);
+    hashmatch (dg_md, cs_state, remdata, sizeof (salt), salt, ldevsize, rdevsize, &rd_queue, &wr_queue, ldevfd, 0, mdevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, &blockreqs, 0);
 
     // finish the bdsync archive
     {
@@ -1731,7 +1746,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
         size_t        tlen, len, clen;
         unsigned char *buf, *cbuf, *cp;
 
-        if (remblocks) {
+        if (remdata) {
             send_getchecksum (&wr_queue);
             get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen);
             check_token ("", token, msg_checksum);
@@ -1773,10 +1788,10 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     return 0;
 };
 
-int do_patch (char *dev)
+int do_patch (char *dev, int diffsize)
 {
     int            devfd, len;
-    off64_t        devsize, tdevsize;
+    off64_t        devsize, ndevsize;
     int            bufsize = 4096;
     char           *buf = malloc (bufsize);
     off64_t        lpos;
@@ -1790,23 +1805,23 @@ int do_patch (char *dev)
     }
     len = strlen (buf);
     if (buf[len-1] != '\n' || strncmp (buf, "BDSYNC ", 7)) {
-        verbose (0, "Bad header\n");
+        verbose (0, "ERROR: Bad header\n");
         exit (1);
     }
     if (len-1 != strlen (ARCHVER) || strncmp (buf, ARCHVER, len-1)) {
-        verbose (0, "Bad archive version\n");
+        verbose (0, "ERROR: Bad archive version\n");
         exit (1);
     }
 
-    if (   fread (&tdevsize, 1, sizeof (tdevsize), stdin) != sizeof (tdevsize)
+    if (   fread (&ndevsize, 1, sizeof (ndevsize), stdin) != sizeof (ndevsize)
         || fread (&devlen,   1, sizeof (devlen),   stdin) != sizeof (devlen)
         || devlen > 16384) {
-        verbose (0, "Bad data\n");
+        verbose (0, "ERROR: Bad data (1)\n");
         exit (1);
     }
     devname = malloc (devlen + 1);
     if (fread (devname, 1, devlen, stdin) != devlen) {
-        verbose (0, "Bad data\n");
+        verbose (0, "ERROR: Bad data (2)\n");
         exit (1);
     }
     devname[devlen] = '\0';
@@ -1821,9 +1836,16 @@ int do_patch (char *dev)
 
     devfd = opendev (dev, &devsize, O_RDWR);
 
-    if (tdevsize != devsize) {
-        verbose (0, "Sizes don't match device=%lld input=%lld\n", devsize, tdevsize);
-        exit (1);
+    if (ndevsize != devsize) {
+        if (diffsize) {
+            if (ftruncate64 (devfd, ndevsize) != 0) {
+                verbose (0, "Cannot truncate device=%s\n", devname);
+                exit (1);
+            }
+        } else {
+            verbose (0, "Sizes don't match device=%lld input=%lld\n", devsize, ndevsize);
+            exit (1);
+        }
     }
 
     lpos = -1;
@@ -1834,8 +1856,9 @@ int do_patch (char *dev)
 
         if (   fread (&pos,  1, sizeof (pos),  stdin) != sizeof (pos)
             || fread (&blen, 1, sizeof (blen), stdin) != sizeof (blen)
-            || blen < 0 || pos + blen > devsize) {
-            verbose (0, "Bad data\n");
+            || blen < 0 || pos + blen > ndevsize) {
+            verbose (0, "Bad data (3)\n");
+            verbose (0, "Bad data (3) %d %d\n", (int)(pos + blen), (int)ndevsize);
             exit (1);
         }
         if (pos == 0 && blen == 0) break;
@@ -1911,8 +1934,9 @@ static struct option long_options[] = {
     , {"hash",      required_argument, 0, 'h' }
     , {"checksum",  required_argument, 0, 'c' }
     , {"twopass",   no_argument,       0, 't' }
-    , {"remblocks", no_argument,       0, 'r' }
+    , {"remdata",   no_argument,       0, 'r' }
     , {"fixedsalt", no_argument,       0, 'f' }
+    , {"diffsize",  no_argument,       0, 'd' }
     , {0,           0,                 0,  0  }
 };
 
@@ -1922,8 +1946,9 @@ int main (int argc, char *argv[])
     int     isserver  = 0;
     int     ispatch   = 0;
     int     twopass   = 0;
-    int     remblocks = 0;
+    int     remdata   = 0;
     int     fixedsalt = 0;
+    int     diffsize  = 0;
     char    *patchdev = NULL;
     char    *hash     = NULL;
     char    *checksum = NULL;
@@ -1935,7 +1960,7 @@ int main (int argc, char *argv[])
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:trf"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd"
                         , long_options, &option_index);
 
         if (c == -1) break;
@@ -1968,10 +1993,13 @@ int main (int argc, char *argv[])
             twopass = 1;
             break;
         case 'r':
-            remblocks = 1;
+            remdata = 1;
             break;
         case 'f':
             fixedsalt = 1;
+            break;
+        case 'd':
+            diffsize = 1;
             break;
         case '?':
             return 1;
@@ -2008,7 +2036,7 @@ int main (int argc, char *argv[])
             verbose (0, "Bad number of arguments %d\n", argc - optind);
             return 1;
         }
-        return do_patch (patchdev);
+        return do_patch (patchdev, diffsize);
     }
 
     if (isserver) {
@@ -2028,5 +2056,5 @@ int main (int argc, char *argv[])
 
     if (!hash) hash = "md5";
 
-    return do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remblocks, fixedsalt);
+    return do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize);
 }

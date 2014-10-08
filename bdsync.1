@@ -56,8 +56,12 @@ Makes bdsync first match checksums using large blocks (64 * BLOCKSIZE) and then 
 when the "binary diff" has limited size.
 
 .TP
-.B \-\-remblocks
-Makes bdsync (in client mode) write the remote blocks to standard output instead of the local blocks that differ.
+.B \-\-remdata
+Makes bdsync (in client mode) write the remote data to standard output instead of the local blocks that differs.
+
+.TP
+.B \-\-diffsize
+Makes bdsync (in client mode and patch mode) accept different sizes of devices
 
 .SH "USAGE"
 
