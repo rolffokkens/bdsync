@@ -732,6 +732,8 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
     prd_queue->phd  = phd->pnxt;
     if (phd->pnxt == NULL) prd_queue->ptl = NULL;
 
+    free (phd);
+
     verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgstring[*token], *msglen);
 
     return 0;
