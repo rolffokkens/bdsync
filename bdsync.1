@@ -1,22 +1,22 @@
-.TH "bdsync" "1" "24 Jun 2012" "" ""
+.TH "bdsync" "1" "21 Oct 2014" "" ""
 .SH "NAME"
 bdsync \(em a fast block device synchronizing tool
 .SH "SYNOPSIS"
 
 .PP 
 .nf 
-  Client: bdsync [--verbose] [--digest DIGEST] REMSHCMD LOCDEV REMDEV
+  Client: bdsync [--verbose] [--digest=DIGEST] REMSHCMD LOCDEV REMDEV
   Server: bdsync --server [--verbose]
-  Patch:  bdsync --patch [--verbose] [DSTDEV]
+  Patch:  bdsync --patch[=DSTDEV] [--verbose]
 .fi 
 .SH "DESCRIPTION"
 
 .PP 
 Bdsync can be used to synchronize block devices over a network. It generates
-a "binary diff" in an efficient way by comparing checksums of blocks
+a "binary patchfile" in an efficient way by comparing checksums of blocks
 of the local block device LOCDEV and the remote block device REMDEV.
 .PP
-This binary diff can be sent to the remote machine and applied to its block
+This binary patchfile can be sent to the remote machine and applied to its block
 device REMDEV, after which the local blockdev LOCDEV and the remote block 
 device REMDEV are synchronized.
 .PP
@@ -31,7 +31,7 @@ devices.
 Start bdsync as a server. No further arguments are accepted, all controll is done by standard input and standard output
 
 .TP
-.B \-\-patch [DEVICE]
+.B \-\-patch[=DEVICE]
 Make bdsync "patch" a device by applying a bdsync file read from standard input. The device will be determined from the bdsync data unless an (optional) device name DEVICE is specified
 
 .TP
@@ -39,21 +39,21 @@ Make bdsync "patch" a device by applying a bdsync file read from standard input.
 Increase the verbosity of bdsync. Can be repeated multiple times.
 
 .TP
-.B \-\-hash DIGEST
+.B \-\-hash=DIGEST
 Choose any of openssl's digests as a hash for matching blocks on LOCDEV en REMDEV. Default is md5.
 
 .TP
-.B \-\-blocksize BLOCKSIZE
+.B \-\-blocksize=BLOCKSIZE
 Set the blocksize in bytes for which hashes are calculated on both LOCDEV and REMDEV. Default 4096.
 
 .TP
-.B \-\-checksum DIGEST
-Choose any of openssl's digests as a checksum for all LOCDEV data. The checksum will be written to the binary diff. Default is none.
+.B \-\-checksum=DIGEST
+Choose any of openssl's digests as a checksum for all LOCDEV data. The checksum will be written to the binary patchfile. Default is none.
 
 .TP
 .B \-\-twopass
 Makes bdsync first match checksums using large blocks (64 * BLOCKSIZE) and then match checksums using small blocks (BLOCKSIZE). This may reduce systemcall overhead and networktraffic
-when the "binary diff" has limited size.
+when the "binary patchfile" has limited size.
 
 .TP
 .B \-\-remdata
@@ -82,7 +82,7 @@ Bdsync can be initiated like this in its most simple form:
 \f(CWbdsync "bdsync -s" /dev/LOCDEV /dev/REMDEV > DEV.bdsync\fP
 .RE
 .PP
-This generates a diff DEV.rsync of the /dev/LOCDEV and the /dev/REMDEV devices
+This generates a patchfile DEV.rsync of the /dev/LOCDEV and the /dev/REMDEV devices
 which both are local. A more realistic example is this:
 .PP
 .RS 
@@ -90,24 +90,24 @@ which both are local. A more realistic example is this:
 .RE
 .PP
 This bdsync client makes an ssh connection to foo.org as user doe and executes a
-bdsync client by passing it the --server option. The generated diff output is
-passed on to gzip which creates a compressed diff file DEV.bdsync.gz.
+bdsync client by passing it the --server option. The generated patchfile output is
+passed on to gzip which creates a compressed patchfile DEV.bdsync.gz.
 .PP
 On the remote machine foo.org the user doe can apply the patch by executing:
 .PP
 .RS 
-\f(CWgzip < DEV.bdsync.gz | bdsync --patch /dev/DSTDEV\fP
+\f(CWgzip < DEV.bdsync.gz | bdsync --patch=/dev/DSTDEV\fP
 .RE
 .PP
 The reason to use a binary patch file instead of instantly patching the remote
 block device REMDEV is twofold:
 .PP
 .IP o
-Sending over a complete diff allows to synchronize in a consistent way in case
+Sending over a complete patchfile allows to synchronize in a consistent way in case
 of an interruption (powerloss, network malfunction) since you can choose to
-apply the (complete) diff or not.
+apply the (complete) patchfile or not.
 .PP
 .IP o
-Compression of the diff can easily be done, without introducing complexity in
+Compression of the patchfile can easily be done, without introducing complexity in
 bdsync itself.
 .PP 
