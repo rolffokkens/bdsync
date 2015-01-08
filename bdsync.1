@@ -96,7 +96,7 @@ passed on to gzip which creates a compressed patchfile DEV.bdsync.gz.
 On the remote machine foo.org the user doe can apply the patch by executing:
 .PP
 .RS 
-\f(CWgzip < DEV.bdsync.gz | bdsync --patch=/dev/DSTDEV\fP
+\f(CWgzip -d < DEV.bdsync.gz | bdsync --patch=/dev/DSTDEV\fP
 .RE
 .PP
 The reason to use a binary patch file instead of instantly patching the remote
