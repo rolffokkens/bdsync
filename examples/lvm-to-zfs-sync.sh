@@ -1,7 +1,21 @@
 #!/bin/sh
 
-# ZFS fs holding zvols
-localtarget=
+# Example script to sync from LVM on a remote host to a local zvol 
+# device on zfs, taking a snapshot on the zfs before the sync takes 
+# place.
+
+# Call the script as lvm-to-zfs-sync.sh <volume name> 
+
+# Includes an option to do a baseline transfer against /dev/null to 
+# minimise disk reads
+
+# This assumes that volume name exists as a zvol locally and an lvm 
+# volume remotely.
+
+# Written by Tim Fletcher <tim@night-shade.org.uk>
+
+# ZFS zpool/zfs holding zvols
+localtarget=tank/fs
 # LVM device to pull from
 remotetarget=/dev/LVM
 # Remove username and host
