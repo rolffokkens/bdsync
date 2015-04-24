@@ -6,7 +6,7 @@ TDIR=`mktemp -d /tmp/bdsync-XXXXXX`
 
 mkdir $TDIR/bdsync-$VERSION
 
-for i in maketar.sh Makefile bdsync.c README.md VERSION COPYING bdsync.1 bdsync.spec
+for i in maketar.sh Makefile bdsync.c bdsync-hash.h README.md VERSION COPYING bdsync.1 bdsync.spec
 do
    cp $i $TDIR/bdsync-$VERSION
 done

@@ -1,5 +1,13 @@
+ifeq ($(CRYPTO),gnutls)
+DCRYPTO=-DHAVE_GNUTLS
+LCRYPTO=gnutls
+else
+DCRYPTO=
+LCRYPTO=crypto
+endif
+
 bdsync: bdsync.c
-	cc -Wall -g -o bdsync bdsync.c -lcrypto
+	cc -Wall -g $(DCRYPTO) -o bdsync bdsync.c -l$(LCRYPTO)
 
 tar:
 	./maketar.sh

@@ -57,7 +57,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <string.h>
-#include <openssl/evp.h>
+#include "bdsync-hash.h"
 #include <netdb.h>
 #include <sys/socket.h>
 #include <stdarg.h>
@@ -190,27 +190,26 @@ struct zero_hash {
 };
 
 struct cs_state {
-    char       *name;
-    off64_t    nxtpos;
-    EVP_MD_CTX *ctx;
-    int        hashsize;
+    char     *name;
+    off64_t  nxtpos;
+    hash_ctx ctx;
+    int      hashsize;
 };
 
-EVP_MD_CTX *_init_cs (const char *checksum, int *hs)
+hash_ctx _init_cs (const char *checksum, int *hs)
 {
-    const EVP_MD *md;
-    EVP_MD_CTX   *ctx;
+    hash_alg md;
+    hash_ctx ctx;
 
-    md  = EVP_get_digestbyname (checksum);
+    md  = hash_getbyname (checksum);
 
     if (!md) {
         verbose (0, "Bad checksum %s\n", checksum);
         exit (1);
     }
 
-    *hs = EVP_MD_size (md);
-    ctx = EVP_MD_CTX_create();
-    EVP_DigestInit_ex (ctx, md, NULL);
+    *hs = hash_getsize (md);
+    hash_init (ctx, md);
 
     return ctx;
 }
@@ -222,7 +221,7 @@ static unsigned char    *zeroblock    = NULL;
 static struct zero_hash *find_zero_hash (const char *name, off64_t blocksize)
 {
     struct zero_hash *pzh = pzeroes;
-    EVP_MD_CTX       *ctx;
+    hash_ctx         ctx;
     int              hs;
 
     verbose (3, "find_zero_hash: name=%s: blocksize=%lld\n", name, blocksize);
@@ -248,16 +247,15 @@ static struct zero_hash *find_zero_hash (const char *name, off64_t blocksize)
     pzeroes->hashsize  = hs;
     pzeroes->hash      = malloc (hs);
 
-    EVP_DigestUpdate (ctx, zeroblock, blocksize);
-    EVP_DigestFinal_ex (ctx, pzeroes->hash, NULL);
-    EVP_MD_CTX_destroy (ctx);
+    hash_update (ctx, zeroblock, blocksize);
+    hash_finish (ctx, pzeroes->hash);
 
     return pzeroes;
 }
 
 struct cs_state *init_checksum (const char *checksum)
 {
-    EVP_MD_CTX      *ctx;
+    hash_ctx        ctx;
     int             hs;
     struct cs_state *state;
 
@@ -314,7 +312,7 @@ int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, u
                 exit (1);
             }
 
-            EVP_DigestUpdate (state->ctx, fbuf, blen);
+            hash_update (state->ctx, fbuf, blen);
 
             state->nxtpos += blen;
             len           -= blen;
@@ -333,7 +331,7 @@ int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, u
     verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
             , (long long) state->nxtpos, len);
 
-    EVP_DigestUpdate (state->ctx, buf, len);
+    hash_update (state->ctx, buf, len);
 
     state->nxtpos += len;
 
@@ -1145,7 +1143,7 @@ const char *get_string (char **msgbuf, size_t *msglen)
     return ret;
 };
 
-int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **salt, char **dg_nm, const EVP_MD **dg_md, struct cs_state **cs_state)
+int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **salt, char **dg_nm, hash_alg *dg_md, struct cs_state **cs_state)
 {
     char       *tmp;
     const char *digest, *checksum;
@@ -1178,7 +1176,7 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
     }
 
     *dg_nm = strdup (digest);
-    *dg_md = EVP_get_digestbyname (digest);
+    *dg_md = hash_getbyname (digest);
 
     if (!*dg_md) {
         verbose (0, "parse_digests: bad digest %s\n", digest);
@@ -1343,8 +1341,7 @@ int flush_checksum (struct cs_state **state, size_t *len, unsigned char **buf)
         *len = (*state)->hashsize;
         *buf = malloc (*len);
 
-        EVP_DigestFinal_ex ((*state)->ctx, *buf, NULL);
-        EVP_MD_CTX_destroy ((*state)->ctx);
+        hash_finish ((*state)->ctx, *buf);
 
         {
             char *tmp = bytes2str (*len, *buf);
@@ -1394,7 +1391,7 @@ int is_zeroes (void *start, off64_t len)
     return 1;
 }
 
-int gen_hashes ( const EVP_MD *md
+int gen_hashes ( hash_alg md
                , struct zero_hash *zh
                , struct cs_state *cs_state
                , struct rd_queue *prd_queue, struct wr_queue *pwr_queue
@@ -1405,8 +1402,8 @@ int gen_hashes ( const EVP_MD *md
 {
     unsigned char *buf, *fbuf;
     off64_t       nrd, lenend;
-    int           hashsize = EVP_MD_size (md);
-    EVP_MD_CTX    *dg_ctx;
+    int           hashsize = hash_getsize (md);
+    hash_ctx      dg_ctx;
 
     *retsiz = nstep * hashsize;
     buf     = malloc (nstep * hashsize);
@@ -1433,12 +1430,10 @@ int gen_hashes ( const EVP_MD *md
         if (zh && is_zeroes (fbuf, step)) {
             memcpy (buf, zh->hash, zh->hashsize);
         } else {
-            dg_ctx = EVP_MD_CTX_create();
-            EVP_DigestInit_ex (dg_ctx, md, NULL);
-            EVP_DigestUpdate (dg_ctx, salt, saltsize);
-            EVP_DigestUpdate (dg_ctx, fbuf, nrd);
-            EVP_DigestFinal_ex (dg_ctx, buf, NULL);
-            EVP_MD_CTX_destroy (dg_ctx);
+            hash_init (dg_ctx, md);
+            hash_update (dg_ctx, salt, saltsize);
+            hash_update (dg_ctx, fbuf, nrd);
+            hash_finish (dg_ctx, buf);
         }
         update_checksum (cs_state, start, fd, step, fbuf, devsize);
 
@@ -1483,7 +1478,7 @@ int do_server (int zeroblocks)
     size_t           len;
     struct           wr_queue wr_queue;
     struct           rd_queue rd_queue;
-    const EVP_MD     *dg_md = NULL;
+    hash_alg         dg_md = hash_null;
     struct cs_state  *cs_state;
     char             *dg_nm;
     struct zero_hash *zh;
@@ -1620,7 +1615,7 @@ int write_block (off64_t pos, unsigned short len, char *pblock)
 }
 
 int hashmatch ( const char *dg_nm
-              , const EVP_MD *dg_md
+              , hash_alg dg_md
               , struct cs_state *cs_state
               , int remdata
               , int saltsize, unsigned char *salt
@@ -1650,7 +1645,7 @@ int hashmatch ( const char *dg_nm
 
     mdevsize = (rdevsize > ldevsize ? rdevsize : ldevsize);
 
-    hashsize = EVP_MD_size (dg_md);
+    hashsize = hash_getsize (dg_md);
 
     while (   (hashstart < hashend)
            || ((recurs == 0) && ((*hashreqs != 0) || (*blockreqs != 0)))) {
@@ -1778,10 +1773,10 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     struct          wr_queue wr_queue;
     struct          rd_queue rd_queue;
     int             hashsize;
-    const EVP_MD    *dg_md;
+    hash_alg        dg_md;
     struct cs_state *cs_state;
 
-    dg_md = EVP_get_digestbyname (digest);
+    dg_md = hash_getbyname (digest);
     if (!dg_md) {
         fprintf (stderr, "Bad hash %s\n", digest);
         exit (1);
@@ -1793,7 +1788,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
         cs_state = NULL;
     }
 
-    hashsize = EVP_MD_size (dg_md);
+    hashsize = hash_getsize (dg_md);
 
     init_salt (sizeof (salt), salt, fixedsalt);
 
@@ -2061,7 +2056,7 @@ int main (int argc, char *argv[])
     char    *checksum  = NULL;
     char    *cp;
 
-    OpenSSL_add_all_digests ();
+    hash_global_init ();
 
     for (;;) {
         int option_index = 0;
