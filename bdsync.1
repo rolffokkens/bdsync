@@ -35,6 +35,10 @@ Start bdsync as a server. No further arguments are accepted, all controll is don
 Make bdsync "patch" a device by applying a bdsync file read from standard input. The device will be determined from the bdsync data unless an (optional) device name DEVICE is specified
 
 .TP
+.B \-\-warndev
+Makes bdsync (in patch mode) warn if the specified device with the \-\-patch option differs from the device in the patch data
+
+.TP
 .B \-\-verbose
 Increase the verbosity of bdsync. Can be repeated multiple times.
 
@@ -62,6 +66,10 @@ Makes bdsync (in client mode) write the remote data to standard output instead o
 .TP
 .B \-\-diffsize
 Makes bdsync (in client mode and patch mode) accept different sizes of devices
+
+.TP
+.B \-\-zeroblocks
+Makes bdsync (in client mode and server mode) identify zero-filled blocks and optimize hashes for these blocks. This may be usefull for sparse files with lots of zero filled blocks. 
 
 .SH "USAGE"
 

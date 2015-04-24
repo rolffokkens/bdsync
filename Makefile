@@ -3,3 +3,6 @@ bdsync: bdsync.c
 
 tar:
 	./maketar.sh
+
+test: bdsync
+	./tests.sh
