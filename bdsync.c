@@ -79,6 +79,8 @@
 #define ARCHVER "BDSYNC 0.3"
 #define PROTOVER "0.5"
 
+extern int checkzero (void *p, int len);
+
 void set_blocking(int fd)
 {
         int val;
@@ -1362,36 +1364,6 @@ int flush_checksum (struct cs_state **state, size_t *len, unsigned char **buf)
     return 0;
 }
 
-#define ZTYPE off64_t
-#define ZSTEP off64_t
-#define ZSIZE ((ZTYPE)(sizeof(ZSTEP) - 1))
-
-int is_zeroes (void *start, off64_t len)
-{
-    char  *cp1, *ep1, *cp2, *ep2;
-    ZTYPE *op;
-
-    cp1 = (char *) start;
-    ep1 = (char *)(((ZTYPE) (cp1 +       ZSIZE)) & ~ZSIZE);
-
-    cp2 = (char *)(((ZTYPE) (cp1 + len + ZSIZE)) & ~ZSIZE);
-    ep2 = cp1 + len;
-
-    op  = (off64_t *) ep1;
-
-    while (cp1 < ep1) {
-        if (*cp1++) return 0;
-    }
-    while (op < (off64_t *) cp2) {
-        if (*op++) return 0;
-    }
-    while (cp2 < ep2) {
-        if (*cp2++) return 0;
-    }
-
-    return 1;
-}
-
 int gen_hashes ( hash_alg md
                , struct zero_hash *zh
                , struct cs_state *cs_state
@@ -1424,7 +1396,7 @@ int gen_hashes ( hash_alg md
 /* Kills performance; really slow syscall:
         posix_fadvise64 (fd, start + step, RDAHEAD, POSIX_FADV_WILLNEED);
 */
-        if (zh && is_zeroes (fbuf, step)) {
+        if (zh && checkzero (fbuf, step)) {
             memcpy (buf, zh->hash, zh->hashsize);
         } else {
             hash_init (dg_ctx, md);
@@ -1476,9 +1448,9 @@ int do_server (int zeroblocks)
     size_t           msglen;
     unsigned char    token;
     unsigned char    *buf, *salt;
-    int              devfd, nstep;
+    int              devfd = -1, nstep;
     int              saltsize = 0;
-    off64_t          devsize, start, step;
+    off64_t          devsize = 0, start, step;
     size_t           len;
     struct           wr_queue wr_queue;
     struct           rd_queue rd_queue;
