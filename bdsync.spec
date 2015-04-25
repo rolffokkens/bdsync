@@ -7,7 +7,7 @@ Release: 0.2.%{gitcommit}_git%{?dist}
 Group: Applications/Internet
 # git clone https://github.com/TargetHolding/bdsync.git
 # cd bdsync
-# COMMIT=bf31b1d8 ; git archive --format=tar --prefix=bdsync-0.8-$COMMIT/ $COMMIT | gzip > ../bdsync-0.7-$COMMIT.tar.gz
+# COMMIT=bf31b1d8 ; git archive --format=tar --prefix=bdsync-0.8-$COMMIT/ $COMMIT | gzip > ../bdsync-0.8-$COMMIT.tar.gz
 Source: bdsync-%{version}-%{gitcommit}.tar.gz
 License: GPL
 Requires: openssl
