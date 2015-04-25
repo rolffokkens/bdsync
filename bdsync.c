@@ -47,6 +47,7 @@
 //
 
 #define _LARGEFILE64_SOURCE
+#define _FILE_OFFSET_BITS 64
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -185,7 +186,7 @@ void verbose (int level, char * format, ...)
 
 struct zero_hash {
     char             *name;
-    off64_t          blocksize;
+    off_t            blocksize;
     int              hashsize;
     unsigned char    *hash;
     struct zero_hash *pnxt;
@@ -193,7 +194,7 @@ struct zero_hash {
 
 struct cs_state {
     char     *name;
-    off64_t  nxtpos;
+    off_t    nxtpos;
     hash_ctx ctx;
     int      hashsize;
 };
@@ -217,10 +218,10 @@ hash_ctx _init_cs (const char *checksum, int *hs)
 }
 
 static struct zero_hash *pzeroes      = NULL;
-static off64_t          zeroblocksize = 0;
+static off_t            zeroblocksize = 0;
 static unsigned char    *zeroblock    = NULL; 
 
-static struct zero_hash *find_zero_hash (const char *name, off64_t blocksize, int saltsize, unsigned char *salt)
+static struct zero_hash *find_zero_hash (const char *name, off_t blocksize, int saltsize, unsigned char *salt)
 {
     struct zero_hash *pzh = pzeroes;
     hash_ctx         ctx;
@@ -275,32 +276,32 @@ struct cs_state *init_checksum (const char *checksum)
     return state;
 }
 
-int vpread (int devfd, void *buf, off64_t len, off64_t pos, off64_t devsize)
+int vpread (int devfd, void *buf, off_t len, off_t pos, off_t devsize)
 {
-    off64_t rlen = len;
-    int ret      = 0;
-    char *cbuf   = (char *)buf;
+    off_t rlen = len;
+    int ret    = 0;
+    char *cbuf = (char *)buf;
 
     if (pos + rlen > devsize) {
         rlen = devsize - pos;
 
         if (rlen < 0) rlen = 0;
     }
-    if (rlen) ret = pread64 (devfd, cbuf, rlen, pos);
+    if (rlen) ret = pread (devfd, cbuf, rlen, pos);
     if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
 
     return ret;
 }
 
-int update_checksum (struct cs_state *state, off64_t pos, int fd, off64_t len, unsigned char *buf, off64_t devsize)
+int update_checksum (struct cs_state *state, off_t pos, int fd, off_t len, unsigned char *buf, off_t devsize)
 {
     if (!state) return 0;
 
     if (pos > state->nxtpos) {
-        size_t  nrd ;
-        off64_t len   = pos - state->nxtpos;
-        size_t  blen  = (len > 32768 ? 32768 : len);
-        char    *fbuf = malloc (blen);
+        size_t nrd ;
+        off_t  len   = pos - state->nxtpos;
+        size_t blen  = (len > 32768 ? 32768 : len);
+        char   *fbuf = malloc (blen);
 
         while (len) {
             verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
@@ -469,7 +470,7 @@ pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pw
     return pid;
 };
 
-char *int2char (char *buf, off64_t val, int bytes)
+char *int2char (char *buf, off_t val, int bytes)
 {
     char *p;
 
@@ -480,9 +481,9 @@ char *int2char (char *buf, off64_t val, int bytes)
     return buf;
 }
 
-off64_t char2int (char *buf, int bytes)
+off_t char2int (char *buf, int bytes)
 {
-    off64_t       ret = 0;
+    off_t         ret = 0;
     unsigned char *p = (unsigned char *)buf + bytes;
 
     for (; bytes; bytes--) {
@@ -824,7 +825,7 @@ int send_devfile (struct wr_queue *pqueue, char *devfile)
     return send_msgstring (pqueue, msg_devfile, devfile);
 }
 
-int send_size (struct wr_queue *pqueue, off64_t devsize)
+int send_size (struct wr_queue *pqueue, off_t devsize)
 {
     char tbuf[sizeof (devsize)];
 
@@ -896,12 +897,12 @@ int send_digests (struct wr_queue *pqueue, int saltsize, unsigned char *salt, ch
     return ret;
 }
 
-int send_gethashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep)
+int send_gethashes (struct wr_queue *pqueue, off_t start, off_t step, int nstep)
 {
-    off64_t par[3];
-    char    tbuf[sizeof (par)];
-    char    *cp;
-    int     i;
+    off_t par[3];
+    char  tbuf[sizeof (par)];
+    char  *cp;
+    int   i;
 
     par[0] = start;
     par[1] = step;
@@ -916,11 +917,11 @@ int send_gethashes (struct wr_queue *pqueue, off64_t start, off64_t step, int ns
     return add_wr_queue (pqueue, msg_gethashes, tbuf, sizeof (par));
 };
 
-int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep, unsigned char *buf, size_t siz)
+int send_hashes (struct wr_queue *pqueue, off_t start, off_t step, int nstep, unsigned char *buf, size_t siz)
 {
-    off64_t par[3];
-    char    *tbuf, *cp;
-    int     ret, i;
+    off_t par[3];
+    char  *tbuf, *cp;
+    int   ret, i;
 
     par[0] = start;
     par[1] = step;
@@ -943,12 +944,12 @@ int send_hashes (struct wr_queue *pqueue, off64_t start, off64_t step, int nstep
     return ret;
 };
 
-int send_getblock (struct wr_queue *pqueue, off64_t pos, off64_t len)
+int send_getblock (struct wr_queue *pqueue, off_t pos, off_t len)
 {
-    off64_t par[2];
-    char    tbuf[sizeof (par)];
-    char    *cp;
-    int     i;
+    off_t par[2];
+    char  tbuf[sizeof (par)];
+    char  *cp;
+    int   i;
 
     par[0] = pos;
     par[1] = len;
@@ -962,7 +963,7 @@ int send_getblock (struct wr_queue *pqueue, off64_t pos, off64_t len)
     return add_wr_queue (pqueue, msg_getblock, tbuf, sizeof (par));
 };
 
-int send_block (struct wr_queue *pqueue, int fd, off64_t pos, off64_t len)
+int send_block (struct wr_queue *pqueue, int fd, off_t pos, off_t len)
 {
     char *tbuf, *cp;
     int  ret;
@@ -1118,7 +1119,7 @@ int parse_hello (char *msgbuf, size_t msglen, char **hello)
     return ret;
 };
 
-int parse_size (char *msgbuf, size_t msglen, off64_t *size)
+int parse_size (char *msgbuf, size_t msglen, off_t *size)
 {
     if (msglen != sizeof (*size)) exit (1);
 
@@ -1198,10 +1199,10 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
 };
 
 int parse_gethashes ( char *msgbuf, size_t msglen
-                    , off64_t *start, off64_t *step, int *nstep)
+                    , off_t *start, off_t *step, int *nstep)
 {
-    off64_t par[3];
-    int     i;
+    off_t par[3];
+    int   i;
 
     if (msglen != sizeof (par)) {
         verbose (0, "parse_gethashes: bad message size %d\n", (int)msglen);
@@ -1222,10 +1223,10 @@ int parse_gethashes ( char *msgbuf, size_t msglen
 };
 
 int parse_getblock ( char *msgbuf, size_t msglen
-                   , off64_t *pos, off64_t *len)
+                   , off_t *pos, off_t *len)
 {
-    off64_t par[2];
-    int     i;
+    off_t par[2];
+    int   i;
 
     if (msglen != sizeof (par)) {
         verbose (0, "parse_getblock: bad message size %d\n", (int)msglen);
@@ -1245,7 +1246,7 @@ int parse_getblock ( char *msgbuf, size_t msglen
 };
 
 int parse_block ( char *msgbuf, size_t msglen
-                , off64_t *pos, off64_t *len, char **pblock)
+                , off_t *pos, off_t *len, char **pblock)
 {
     /* there should at least 1 byte in the block */
     if (msglen < sizeof (*pos) + 1) {
@@ -1263,10 +1264,10 @@ int parse_block ( char *msgbuf, size_t msglen
 };
 
 int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
-                 , off64_t *start, off64_t *step, int *nstep, unsigned char **hbuf)
+                 , off_t *start, off_t *step, int *nstep, unsigned char **hbuf)
 {
-    off64_t par[3];
-    int     i;
+    off_t par[3];
+    int   i;
 
     if (msglen < sizeof (par)) {
         verbose (0, "parse_hashes: bad size=%lld minimum=%lld\n", (long long)msglen, (long long)(sizeof (par)));
@@ -1370,11 +1371,11 @@ int gen_hashes ( hash_alg md
                , struct rd_queue *prd_queue, struct wr_queue *pwr_queue
                , int saltsize, unsigned char *salt
                , unsigned char **retbuf, size_t *retsiz, int fd
-               , off64_t devsize
-               , off64_t start, off64_t step, int nstep)
+               , off_t devsize
+               , off_t start, off_t step, int nstep)
 {
     unsigned char *buf, *fbuf;
-    off64_t       nrd, lenend;
+    off_t         nrd, lenend;
     int           hashsize = hash_getsize (md);
     hash_ctx      dg_ctx;
 
@@ -1426,7 +1427,7 @@ int gen_hashes ( hash_alg md
     return 0;
 };
 
-int opendev (char *dev, off64_t *siz, int flags)
+int opendev (char *dev, off_t *siz, int flags)
 {
     int     fd;
 
@@ -1435,7 +1436,7 @@ int opendev (char *dev, off64_t *siz, int flags)
         verbose (0, "opendev [%s]: %s\n", dev, strerror (errno));
         exit (1);
     }
-    *siz = lseek64 (fd, 0, SEEK_END);
+    *siz = lseek (fd, 0, SEEK_END);
 
     verbose (1, "opendev: opened %s\n", dev);
 
@@ -1450,7 +1451,7 @@ int do_server (int zeroblocks)
     unsigned char    *buf, *salt;
     int              devfd = -1, nstep;
     int              saltsize = 0;
-    off64_t          devsize = 0, start, step;
+    off_t            devsize = 0, start, step;
     size_t           len;
     struct           wr_queue wr_queue;
     struct           rd_queue rd_queue;
@@ -1579,9 +1580,9 @@ void check_token (char *f, unsigned char token, unsigned char expect)
 // #define HSMALL  32768
 // #define HLARGE  32768
 
-#define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off64_t))/hashsize)
+#define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off_t))/hashsize)
 
-int write_block (off64_t pos, unsigned short len, char *pblock)
+int write_block (off_t pos, unsigned short len, char *pblock)
 {
     fwrite (&pos, sizeof (pos), 1, stdout);
     fwrite (&len, sizeof (len), 1, stdout);
@@ -1595,9 +1596,9 @@ int hashmatch ( const char *dg_nm
               , struct cs_state *cs_state
               , int remdata
               , int saltsize, unsigned char *salt
-              , off64_t ldevsize, off64_t rdevsize
+              , off_t ldevsize, off_t rdevsize
               , struct rd_queue *prd_queue, struct wr_queue *pwr_queue, int devfd
-              , off64_t hashstart, off64_t hashend, off64_t hashstep, off64_t nextstep
+              , off_t hashstart, off_t hashend, off_t hashstep, off_t nextstep
               , int maxsteps
               , int *hashreqs
               , int *blockreqs
@@ -1611,7 +1612,7 @@ int hashmatch ( const char *dg_nm
     char          *msg;
     size_t        msglen;
     unsigned char token;
-    off64_t       rstart, rstep, mdevsize;
+    off_t         rstart, rstep, mdevsize;
     int           rnstep, hashsize;
     struct zero_hash *zh;
 
@@ -1650,8 +1651,8 @@ int hashmatch ( const char *dg_nm
             check_token ("", token, msg_block);
             (*blockreqs)--;
 
-            char    *pblock;
-            off64_t pos, len;
+            char  *pblock;
+            off_t pos, len;
 
             parse_block (msg, msglen, &pos, &len, &pblock);
             write_block (pos, len, pblock);
@@ -1675,20 +1676,20 @@ int hashmatch ( const char *dg_nm
         gen_hashes (dg_md, zh, (rstep == hashstep ? cs_state : NULL)
                    , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, ldevsize, rstart, rstep, rnstep);
 
-        off64_t       pos = rstart;
+        off_t         pos = rstart;
         unsigned char *lp = lhbuf, *rp = rhbuf;
         int           ns = rnstep;
 
         while (ns--) {
             if (bcmp (lp, rp, hashsize)) {
-                off64_t tend = pos + rstep;
+                off_t tend = pos + rstep;
 
                 if (tend > mdevsize) tend = mdevsize;
 
                 if (rstep == nextstep) {
                     /* HSMALL? Then write the data */
-                    off64_t        len   = tend - pos;
-                    off64_t        tpos  = pos;
+                    off_t          len   = tend - pos;
+                    off_t          tpos  = pos;
                     unsigned short blen  = (len > 32768 ? 32768 : len);
                     char           *fbuf = malloc (blen);
 
@@ -1700,13 +1701,13 @@ int hashmatch ( const char *dg_nm
 
                         if (remdata) {
                             /* Get the blocks from the server */
-                            off64_t tlen = rdevsize - pos;
+                            off_t tlen = rdevsize - pos;
                             if (tlen > blen) tlen = blen;
 
                             send_getblock (pwr_queue, tpos, tlen);
                             (*blockreqs)++;
                         } else {
-                            off64_t tlen = ldevsize - pos;
+                            off_t tlen = ldevsize - pos;
                             if (tlen > blen) tlen = blen;
 
                             vpread (devfd, fbuf, tlen, tpos, ldevsize);
@@ -1737,14 +1738,14 @@ int hashmatch ( const char *dg_nm
     return 0;
 };
 
-int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off64_t hlarge, off64_t hsmall, int remdata, int fixedsalt, int diffsize, int zeroblocks)
+int do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off_t hlarge, off_t hsmall, int remdata, int fixedsalt, int diffsize, int zeroblocks)
 {
     char            *msg;
     size_t          msglen;
     unsigned char   token;
     unsigned char   salt[SALTSIZE];
     int             ldevfd;
-    off64_t         ldevsize, rdevsize, mdevsize;
+    off_t           ldevsize, rdevsize, mdevsize;
     unsigned short  devlen;
     struct          wr_queue wr_queue;
     struct          rd_queue rd_queue;
@@ -1808,7 +1809,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
 
     // finish the bdsync archive
     {
-        off64_t        pos  = 0;
+        off_t          pos  = 0;
         unsigned short blen = 0;
 
         fwrite (&pos,  sizeof (pos),  1, stdout);
@@ -1865,10 +1866,10 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
 int do_patch (char *dev, int warndev, int diffsize)
 {
     int            devfd, len;
-    off64_t        devsize, ndevsize;
+    off_t          devsize, ndevsize;
     int            bufsize = 4096;
     char           *buf = malloc (bufsize);
-    off64_t        lpos;
+    off_t          lpos;
     int            bytct = 0, blkct = 0, segct = 0;
     unsigned short devlen;
     char           *devname;
@@ -1912,7 +1913,7 @@ int do_patch (char *dev, int warndev, int diffsize)
 
     if (ndevsize != devsize) {
         if (diffsize) {
-            if (ftruncate64 (devfd, ndevsize) != 0) {
+            if (ftruncate (devfd, ndevsize) != 0) {
                 verbose (0, "Cannot truncate device=%s\n", devname);
                 exit (1);
             }
@@ -1925,7 +1926,7 @@ int do_patch (char *dev, int warndev, int diffsize)
     lpos = -1;
 
     for (;;) {
-        off64_t        pos;
+        off_t          pos;
         unsigned short blen;
 
         if (   fread (&pos,  1, sizeof (pos),  stdin) != sizeof (pos)
@@ -2018,19 +2019,19 @@ static struct option long_options[] = {
 
 int main (int argc, char *argv[])
 {
-    off64_t blocksize  = 4096, hlarge, hsmall;
-    int     isserver   = 0;
-    int     ispatch    = 0;
-    int     twopass    = 0;
-    int     remdata    = 0;
-    int     fixedsalt  = 0;
-    int     diffsize   = 0;
-    int     zeroblocks = 0;
-    int     warndev    = 0;
-    char    *patchdev  = NULL;
-    char    *hash      = NULL;
-    char    *checksum  = NULL;
-    char    *cp;
+    off_t blocksize  = 4096, hlarge, hsmall;
+    int   isserver   = 0;
+    int   ispatch    = 0;
+    int   twopass    = 0;
+    int   remdata    = 0;
+    int   fixedsalt  = 0;
+    int   diffsize   = 0;
+    int   zeroblocks = 0;
+    int   warndev    = 0;
+    char  *patchdev  = NULL;
+    char  *hash      = NULL;
+    char  *checksum  = NULL;
+    char  *cp;
 
     hash_global_init ();
 
