@@ -6,8 +6,8 @@ RET=0
 for i in tests/test[0-9]*.sh
 do
     echo `basename $i`:
-    $i > $TMP || RET=1
-    sed 's/^/    /' < $TMP
+    $i | sed 's/^/    /'
+    [ "${PIPESTATUS[0]}" == 0 ] || RET=1
 done
 
 rm -f $TMP

@@ -13,3 +13,6 @@ tar:
 
 test: bdsync
 	./tests.sh
+
+clean:
+	rm -f bdsync
