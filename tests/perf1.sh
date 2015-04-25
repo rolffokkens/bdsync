@@ -1,5 +1,5 @@
 #!/bin/bash
-SIZE=10G
+
 . `dirname "$0"`/testlib.sh
 
 do_check ()
@@ -12,17 +12,17 @@ do_check ()
     local BDSYNC1="$TDIR/DEV.bdsync1"
     local BDSYNC2="$TDIR/DEV.bdsync2"
 
-    truncate -s $SIZE $LOCDEV 
-    truncate -s $SIZE $REMDEV 
+    cre_sparse_file $LOCDEV 10G
+    cre_sparse_file $REMDEV 10G
 
-    echo "no --zeroblock set"
-    time ./bdsync --remdata "./bdsync -s" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (1) failed"
-    echo "--zeroblock set on remote"
-    time ./bdsync --remdata "./bdsync -s --zeroblock" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (2) failed"
-    echo "--zeroblock set on local"
-    time ./bdsync --remdata --zeroblock "./bdsync -s" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (3) failed"
-    echo "--zeroblock set on both"
-    time ./bdsync --remdata --zeroblock "./bdsync -s --zeroblock" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (4) failed"
+    echo "no --zeroblocks set"
+    time ./bdsync --remdata              "./bdsync -s             " $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (1) failed"
+    echo "--zeroblocks set on remote"
+    time ./bdsync --remdata              "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (2) failed"
+    echo "--zeroblocks set on local"
+    time ./bdsync --remdata --zeroblocks "./bdsync -s             " $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (3) failed"
+    echo "--zeroblocks set on both"
+    time ./bdsync --remdata --zeroblocks "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (4) failed"
 }
 
-handle_check do_check "--zeroblock speed test"
+handle_check do_check "--zeroblocks speed test"

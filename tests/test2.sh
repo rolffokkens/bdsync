@@ -12,15 +12,15 @@ do_check ()
     local BDSYNC1="$TDIR/DEV.bdsync1"
     local BDSYNC2="$TDIR/DEV.bdsync2"
 
-    dd if=/dev/zero of=$LOCDEV bs=1024 count=1024 2>/dev/null
-    dd if=/dev/zero of=$REMDEV bs=1024 count=1024 2>/dev/null
+    cre_sparse_file $LOCDEV 1M
+    cre_sparse_file $REMDEV 1M
 
-    echo test | dd of=$LOCDEV ibs=1 seek=512 obs=1 conv=notrunc 2>/dev/null
+    echo test | overwrite_file $LOCDEV 512k
 
     MD5LOC1=`get_md5 $LOCDEV`
     MD5REM1=`get_md5 $REMDEV`
 
-    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "e2f88f4b89678325b1ad20ddbc0b9fe6"
+    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "d09bf45c318f2f7482b4b595484caef6"
     check_sum "Bad checksum MD5REM1" "$MD5REM1" "b6d81b360a5672d80c27430f39153e2c"
 
     ./bdsync --fixedsalt --checksum md5 --remdata     "./bdsync -s -v" $LOCDEV $REMDEV > $BDSYNC1 \

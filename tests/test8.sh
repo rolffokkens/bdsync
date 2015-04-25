@@ -12,14 +12,17 @@ do_check ()
     local BDSYNC1="$TDIR/DEV.bdsync1"
     local BDSYNC2="$TDIR/DEV.bdsync2"
 
-    echo .abcd >$LOCDEV 
-    echo .abXd >$REMDEV 
+    cre_sparse_file $LOCDEV 1M
+    cre_sparse_file $REMDEV 1M
+
+    echo .abcd | overwrite_file $LOCDEV 512k
+    echo .abXd | overwrite_file $REMDEV 512k
 
     MD5LOC1=`get_md5 $LOCDEV`
     MD5REM1=`get_md5 $REMDEV`
 
-    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "8a47088ef3be2d289d0f2f726169e7ad"
-    check_sum "Bad checksum MD5REM1" "$MD5REM1" "31a562e32a22fb5f222080abb3d907ee"
+    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "be2f3119e1b3f8ff8dff771065488a82"
+    check_sum "Bad checksum MD5REM1" "$MD5REM1" "57e7487c6ac9184d6a23cd5d2ead6bc2"
 
     ./bdsync --remdata "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
     ./bdsync           "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
@@ -36,8 +39,8 @@ do_check ()
     MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`
 
-    check_sum "Bad checksum MD5LOC2" "$MD5LOC2" "31a562e32a22fb5f222080abb3d907ee"
-    check_sum "Bad checksum MD5REM2" "$MD5REM2" "31a562e32a22fb5f222080abb3d907ee"
+    check_sum "Bad checksum MD5LOC2" "$MD5LOC2" "$MD5REM1"
+    check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "--warndev option when no warning should be issued"
+handle_check do_check "--warndev option when a warning SHOULD NOT be issued"
