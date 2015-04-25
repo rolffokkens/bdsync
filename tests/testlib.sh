@@ -27,6 +27,18 @@ check_sum ()
     abort_msg "$1"
 }
 
+check_sizemax ()
+{
+    local MSG="$1"
+    local FILE="$2"
+    local MAXSIZE="$3"
+    local SIZE=`stat -c "%s" "$FILE"`
+
+    [ "$SIZE" -lt "$MAXSIZE" ] && return 0
+
+    abort_msg "$MSG"
+}
+
 handle_check ()
 {
     local TDIR=`mktemp -d /tmp/handle_check-XXXXXX`
@@ -53,4 +65,20 @@ handle_check ()
     rm -rf $TDIR
 
     return $RET
+}
+
+cre_sparse_file ()
+{
+    local FILE="$1"
+    local SIZE="$2"
+
+    truncate -s "$SIZE" "$FILE"
+}
+
+overwrite_file ()
+{
+    local FILE="$1"
+    local POS="$2"
+
+    dd "of=$FILE" ibs=1 "seek=$POS" obs=1 conv=notrunc 2>/dev/null
 }
