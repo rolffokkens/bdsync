@@ -27,16 +27,16 @@ do_check ()
     check_sum "Bad checksum MD5REM1" "$MD5REM1" "57e7487c6ac9184d6a23cd5d2ead6bc2"
 
     ./bdsync              "./bdsync -s             " $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
-    check_sizemax "file BDSYNC1 too large" $BDSYNC1 10000
+    check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
 
     ./bdsync --zeroblocks "./bdsync -s             " $LOCDEV $REMDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
-    check_sizemax "file BDSYNC2 too large" $BDSYNC2 10000
+    check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000
 
     ./bdsync              "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > $BDSYNC3 || abort_msg "bdsync (3) failed"
-    check_sizemax "file BDSYNC3 too large" $BDSYNC3 10000
+    check_sizemax "file BDSYNC3 too large" $BDSYNC3 5000
 
     ./bdsync --zeroblocks "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > $BDSYNC4 || abort_msg "bdsync (4) failed"
-    check_sizemax "file BDSYNC3 too large" $BDSYNC3 10000
+    check_sizemax "file BDSYNC3 too large" $BDSYNC3 5000
 
     MD5BD1=`get_md5 $BDSYNC1`
     MD5BD2=`get_md5 $BDSYNC2`

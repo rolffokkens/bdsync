@@ -28,6 +28,12 @@ do_check ()
     ./bdsync --fixedsalt --checksum md5 --hash sha256 "./bdsync -s -v" $REMDEV $LOCDEV > $BDSYNC2 \
         || abort_msg "bdsync (2) failed"
 
+    #
+    # bdsync file should be about 1 4k block in size
+    #
+    check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
+    check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000
+
     MD5BD1=`get_md5 $BDSYNC1`
     MD5BD2=`get_md5 $BDSYNC2`
 
