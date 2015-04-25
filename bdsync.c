@@ -1401,7 +1401,7 @@ int gen_hashes ( hash_alg md
         } else {
             hash_init (dg_ctx, md);
             hash_update (dg_ctx, salt, saltsize);
-            hash_update (dg_ctx, fbuf, nrd);
+            hash_update (dg_ctx, fbuf, step);
             hash_finish (dg_ctx, buf);
         }
 
