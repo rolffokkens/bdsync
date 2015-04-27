@@ -184,6 +184,17 @@ void verbose (int level, char * format, ...)
     va_end (args);
 };
 
+void exitmsg (char * format, ...)
+{
+    va_list args;
+
+    va_start (args, format);
+    vhandler (format, args);
+    va_end (args);
+
+    exit (1);
+};
+
 struct zero_hash {
     char             *name;
     off_t            blocksize;
@@ -310,9 +321,8 @@ int update_checksum (struct cs_state *state, off_t pos, int fd, off_t len, unsig
             nrd = vpread (fd, fbuf, blen, state->nxtpos, devsize);
 
             if (nrd != blen) {
-                verbose (0, "update_checksum: nrd (%lld) != blen (%d)\n"
-                          , (long long)nrd, (int)blen);
-                exit (1);
+                exitmsg ("update_checksum: nrd (%lld) != blen (%d)\n"
+                        , (long long)nrd, (int)blen);
             }
 
             hash_update (state->ctx, fbuf, blen);
@@ -359,7 +369,9 @@ int init_salt (int saltsize, unsigned char *salt, int fixedsalt)
     } else {
         int fd = open("/dev/urandom", O_RDONLY);
 
-        read (fd, salt, saltsize);
+        if (read (fd, salt, saltsize) != saltsize) {
+            exitmsg ("piped_child: %s\n", strerror (errno));
+        }
 
         close(fd);
     }
@@ -368,52 +380,47 @@ int init_salt (int saltsize, unsigned char *salt, int fixedsalt)
 
 pid_t piped_child(char **command, int *f_in, int *f_out)
 {
-        pid_t pid;
-        int   to_child_pipe[2];
-        int   from_child_pipe[2];
+    pid_t pid;
+    int   to_child_pipe[2];
+    int   from_child_pipe[2];
 
-        verbose (2, "opening connection using: %s\n", command[0]);
+    verbose (2, "opening connection using: %s\n", command[0]);
 
-        if (fd_pair(to_child_pipe) < 0 || fd_pair(from_child_pipe) < 0) {
-                verbose (0, "piped_child: %s\n", strerror (errno));
-                exit (1);
+    if (fd_pair(to_child_pipe) < 0 || fd_pair(from_child_pipe) < 0) {
+            exitmsg ("piped_child: %s\n", strerror (errno));
+    }
+
+    pid = fork();
+    if (pid == -1) {
+            exitmsg ("piped_child: fork: %s\n", strerror (errno));
+    }
+
+    if (pid == 0) {
+        if (dup2(to_child_pipe[0], STDIN_FILENO) < 0 ||
+            close(to_child_pipe[1]) < 0 ||
+            close(from_child_pipe[0]) < 0 ||
+            dup2(from_child_pipe[1], STDOUT_FILENO) < 0) {
+            exitmsg ("piped_child: dup2: %s\n", strerror (errno));
         }
+        if (to_child_pipe[0] != STDIN_FILENO)
+                close(to_child_pipe[0]);
+        if (from_child_pipe[1] != STDOUT_FILENO)
+                close(from_child_pipe[1]);
+            // umask(orig_umask);
+        set_blocking(STDIN_FILENO);
+        set_blocking(STDOUT_FILENO);
+        execvp(command[0], command);
+        exitmsg ("piped_child: execvp: %s\n", strerror (errno));
+    }
 
-        pid = fork();
-        if (pid == -1) {
-                verbose (0, "piped_child: fork: %s\n", strerror (errno));
-                exit (1);
-        }
+    if (close(from_child_pipe[1]) < 0 || close(to_child_pipe[0]) < 0) {
+        exitmsg ("piped_child: close: %s\n", strerror (errno));
+    }
 
-        if (pid == 0) {
-                if (dup2(to_child_pipe[0], STDIN_FILENO) < 0 ||
-                    close(to_child_pipe[1]) < 0 ||
-                    close(from_child_pipe[0]) < 0 ||
-                    dup2(from_child_pipe[1], STDOUT_FILENO) < 0) {
-                        verbose (0, "piped_child: dup2: %s\n", strerror (errno));
-                        exit (1);
-                }
-                if (to_child_pipe[0] != STDIN_FILENO)
-                        close(to_child_pipe[0]);
-                if (from_child_pipe[1] != STDOUT_FILENO)
-                        close(from_child_pipe[1]);
-                // umask(orig_umask);
-                set_blocking(STDIN_FILENO);
-                set_blocking(STDOUT_FILENO);
-                execvp(command[0], command);
-                verbose (0, "piped_child: execvp: %s\n", strerror (errno));
-                exit (1);
-        }
+    *f_in = from_child_pipe[0];
+    *f_out = to_child_pipe[1];
 
-        if (close(from_child_pipe[1]) < 0 || close(to_child_pipe[0]) < 0) {
-                verbose (0, "piped_child: close: %s\n", strerror (errno));
-                exit (1);
-        }
-
-        *f_in = from_child_pipe[0];
-        *f_out = to_child_pipe[1];
-
-        return pid;
+    return pid;
 };
 
 pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue)
@@ -430,16 +437,14 @@ pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pw
         if (*f == ' ') continue;
         /* Comparison leaves rooms for server_options(). */
         if (argc >= ARGMAX - 1) {
-            verbose (0, "internal: args[] overflowed in do_command()\n");
-            exit (1);
+            exitmsg ("internal: args[] overflowed in do_command()\n");
         }
         args[argc++] = t;
         while (*f != ' ' || in_quote) {
             if (!*f) {
                 if (in_quote) {
-                    verbose (0, "Missing trailing-%c in remote-shell command.\n"
+                    exitmsg ("Missing trailing-%c in remote-shell command.\n"
                             , in_quote);
-                    exit (1);
                 }
                 f--;
                 break;
