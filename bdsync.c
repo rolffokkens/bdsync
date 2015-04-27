@@ -298,7 +298,11 @@ int vpread (int devfd, void *buf, off_t len, off_t pos, off_t devsize)
 
         if (rlen < 0) rlen = 0;
     }
-    if (rlen) ret = pread (devfd, cbuf, rlen, pos);
+    if (rlen) {
+        ret = pread (devfd, cbuf, rlen, pos);
+        if (ret < 0) exitmsg ("vpread: %s\n", strerror (errno));
+    }
+
     if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
 
     return ret;
@@ -981,7 +985,14 @@ int send_block (struct wr_queue *pqueue, int fd, off_t pos, off_t len)
     int2char (cp, pos, sizeof (pos));
     cp += sizeof (pos);
 
-    pread (fd, cp, len, pos);
+    ret = pread (fd, cp, len, pos);
+    if (ret != len) {
+        if (len < 0) {
+            exitmsg ("send_block: pread: %s\n", strerror (errno));
+        } else {
+            exitmsg ("send_block: pread read bad #bytes");
+        }
+    }
 
     ret = add_wr_queue (pqueue, msg_block, tbuf, sizeof (pos) + len);
 
