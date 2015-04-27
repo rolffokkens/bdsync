@@ -1,12 +1,14 @@
 ifeq ($(CRYPTO),gnutls)
-CRYPTOFLAGS=-DHAVE_GNUTLS -lgnutls
+CRYPTO_DEF=-DHAVE_GNUTLS
+CRYPTO_LDFLAGS=-lgnutls
 else
-CRYPTOFLAGS=-lcrypto
+CRYPTO_DEF=
+CRYPTO_LDFLAGS=-lcrypto
 endif
 CFLAGS=-O3
 
 bdsync: bdsync.c checkzero.c
-	cc -Wall $(CFLAGS) $(CRYPTOFLAGS) -o bdsync bdsync.c checkzero.c
+	cc -Wall $(CFLAGS) $(CRYPTO_DEF) -o bdsync bdsync.c checkzero.c $(CRYPTO_LDFLAGS)
 
 tar:
 	./maketar.sh
