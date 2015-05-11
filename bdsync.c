@@ -1933,7 +1933,7 @@ int do_patch (char *dev, int warndev, int diffsize)
     if (ndevsize != devsize) {
         if (diffsize) {
             if (ftruncate (devfd, ndevsize) != 0) {
-                verbose (0, "Cannot truncate device=%s\n", devname);
+                verbose (0, "Cannot resize device=%s\n", devname);
                 exit (1);
             }
         } else {
