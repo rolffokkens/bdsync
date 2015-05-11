@@ -75,6 +75,14 @@ cre_sparse_file ()
     truncate -s "$SIZE" "$FILE"
 }
 
+cre_random_file_1k ()
+{
+    local FILE="$1"
+    local SIZE="$2"
+
+    dd if=/dev/urandom "of=$FILE" ibs=1k "count=$SIZE" 2>/dev/null
+}
+
 overwrite_file ()
 {
     local FILE="$1"

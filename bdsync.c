@@ -1720,15 +1720,18 @@ int hashmatch ( const char *dg_nm
                             off_t tlen = rdevsize - pos;
                             if (tlen > blen) tlen = blen;
 
-                            send_getblock (pwr_queue, tpos, tlen);
-                            (*blockreqs)++;
+                            if (tlen > 0) {
+                                send_getblock (pwr_queue, tpos, tlen);
+                                (*blockreqs)++;
+                            }
                         } else {
                             off_t tlen = ldevsize - pos;
                             if (tlen > blen) tlen = blen;
 
-                            vpread (devfd, fbuf, tlen, tpos, ldevsize);
-
-                            write_block (tpos, tlen, fbuf);
+                            if (tlen > 0) {
+                                vpread (devfd, fbuf, tlen, tpos, ldevsize);
+                                write_block (tpos, tlen, fbuf);
+                            }
                         }
                         len  -= blen;
                         tpos += blen;
