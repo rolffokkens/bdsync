@@ -80,6 +80,15 @@
 #define ARCHVER "BDSYNC 0.3"
 #define PROTOVER "0.5"
 
+enum diffsize {
+    ds_none   = 0
+,   ds_strict = 1
+,   ds_resize
+,   ds_minsize
+,   ds_mask   = 0x7f
+,   ds_warn   = 0x80
+};
+
 extern int checkzero (void *p, int len);
 
 void set_blocking(int fd)
@@ -1806,10 +1815,24 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     check_token ("", token, msg_size);
     parse_size (msg, msglen, &rdevsize);
     free (msg);
-    if (!diffsize && rdevsize != ldevsize) {
-        verbose (0, "Different sizes local=%lld remote=%lld\n", ldevsize, rdevsize);
-        exit (1);
+    if (rdevsize != ldevsize) {
+        switch (diffsize & ds_mask) {
+        case ds_strict:
+            verbose (0, "Different sizes local=%lld remote=%lld\n", ldevsize, rdevsize);
+            exit (1);
+            break;
+        case ds_minsize:
+            if (rdevsize > ldevsize) {
+                rdevsize = ldevsize;
+            } else {
+                ldevsize = rdevsize;
+            }
+            break;
+        case ds_resize:
+            break;
+        } 
     }
+
     mdevsize = (rdevsize > ldevsize ? rdevsize : ldevsize);
 
     char *tdev = (remdata ? ldev : rdev);
@@ -1931,14 +1954,20 @@ int do_patch (char *dev, int warndev, int diffsize)
     devfd = opendev (dev, &devsize, O_RDWR);
 
     if (ndevsize != devsize) {
-        if (diffsize) {
+        switch (diffsize & ds_mask) {
+        case ds_strict:
+            verbose (0, "Sizes don't match device=%lld input=%lld\n", devsize, ndevsize);
+            exit (1);
+            break;
+        case ds_resize:
             if (ftruncate (devfd, ndevsize) != 0) {
                 verbose (0, "Cannot resize device=%s\n", devname);
                 exit (1);
             }
-        } else {
-            verbose (0, "Sizes don't match device=%lld input=%lld\n", devsize, ndevsize);
-            exit (1);
+            devsize = ndevsize;
+            break;
+        case ds_minsize:
+            break;
         }
     }
 
@@ -1970,12 +1999,21 @@ int do_patch (char *dev, int warndev, int diffsize)
             verbose (0, "Bad data\n");
             exit (1);
         }
-        verbose (2, "do_patch: write: pos=%lld len=%d\n", (long long)pos, blen);
+        verbose (3, "do_patch: write 1: pos=%lld len=%d\n", (long long)pos, blen);
+
+        lpos = pos + blen;
+
+        if (pos + blen > devsize) {
+            /* optional check for ds_minsize here? */
+            blen = devsize - pos;
+        }
+        if (blen <= 0) continue;
+
+        verbose (2, "do_patch: write 2: pos=%lld len=%d\n", (long long)pos, blen);
         if (pwrite (devfd, buf, blen, pos) != blen) {
             verbose (0, "Write error: pos=%lld len=%d\n", (long long)pos, blen);
             exit (1);
         }
-        lpos = pos + blen;
     }
 
     {
@@ -2020,6 +2058,55 @@ int do_patch (char *dev, int warndev, int diffsize)
     return 0;
 };
 
+static int parse_diffsize (int diffsize, char *options)
+{
+    struct ds_map {
+        char *string;
+        int  id;
+    };
+    struct ds_map map[] = {
+        { "strict",  ds_strict  }
+    ,   { "resize",  ds_resize  }
+    ,   { "minsize", ds_minsize }
+    ,   { "warn",    ds_warn    }
+    ,   { NULL,      0          }
+    };
+    struct ds_map *mp;
+
+    char *cp, *np;
+
+    if (diffsize != ds_none) {
+        fprintf (stderr, "double diffsize specification\n");
+        return -1;
+    }
+    if (options == NULL) return ds_resize;
+
+    cp = options;
+
+    while (*cp) {
+        np = strchr (cp, ',');
+        if (!np) {
+            np = strchr (cp, 0);
+        };
+        for (mp = map; mp->string != NULL; mp++) {
+            if (!strncmp (cp, mp->string, np - cp)) break;
+        }
+        if (mp->string == NULL) {
+            fprintf (stderr, "bad diffsize options %s\n", options);
+            return -1;
+        }
+        if (mp->id != ds_warn && (diffsize & ds_mask)) {
+            fprintf (stderr, "contradictive diffsize %d options %s\n", diffsize, options);
+            return -1;
+        }
+        diffsize |= mp->id;
+        cp = (*np == ',' ? np + 1 : np);
+    }
+    if ((diffsize & ds_mask) == ds_none) diffsize |= ds_resize;
+
+    return diffsize;
+};
+
 static struct option long_options[] = {
       {"server",     no_argument,       0, 's' }
     , {"patch",      optional_argument, 0, 'p' }
@@ -2030,7 +2117,7 @@ static struct option long_options[] = {
     , {"twopass",    no_argument,       0, 't' }
     , {"remdata",    no_argument,       0, 'r' }
     , {"fixedsalt",  no_argument,       0, 'f' }
-    , {"diffsize",   no_argument,       0, 'd' }
+    , {"diffsize",   optional_argument, 0, 'd' }
     , {"zeroblocks", no_argument,       0, 'z' }
     , {"warndev",    no_argument,       0, 'w' }
     , {0,            0,                 0,  0  }
@@ -2044,7 +2131,7 @@ int main (int argc, char *argv[])
     int   twopass    = 0;
     int   remdata    = 0;
     int   fixedsalt  = 0;
-    int   diffsize   = 0;
+    int   diffsize   = ds_none;
     int   zeroblocks = 0;
     int   warndev    = 0;
     char  *patchdev  = NULL;
@@ -2058,7 +2145,7 @@ int main (int argc, char *argv[])
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:trfdzw"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd::zw"
                         , long_options, &option_index);
 
         if (c == -1) break;
@@ -2097,7 +2184,8 @@ int main (int argc, char *argv[])
             fixedsalt = 1;
             break;
         case 'd':
-            diffsize = 1;
+            diffsize = parse_diffsize (diffsize, optarg);
+            if (diffsize == -1) return 1;
             break;
         case 'z':
             zeroblocks = 1;
@@ -2110,6 +2198,8 @@ int main (int argc, char *argv[])
         }
     }
     vhandler = verbose_printf;
+
+    if ((diffsize & ds_mask) == ds_none) diffsize |= ds_strict;
 
     hsmall = blocksize;
     hlarge = (twopass ? 64 * hsmall : hsmall);

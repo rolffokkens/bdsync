@@ -64,9 +64,47 @@ when the "binary patchfile" has limited size.
 Makes bdsync (in client mode) write the remote data to standard output instead of the local blocks that differs.
 
 .TP
-.B \-\-diffsize
-Makes bdsync (in client mode and patch mode) accept different sizes of devices. In patch mode it only applies to (image) files, not devices.
-
+.B \-\-diffsize[=OPTION]
+Specifies how bdsync (in client mode and patch mode) should handle different sizes of devices. Possible values for OPTION are
+.ft B
+strict, 
+resize
+.ft
+and
+.ft B
+minsize.
+.ft
+When
+.ft B
+strict
+.ft
+is specified, different sizes for LOCDEV and REMDEV are not allowed. When
+.ft B
+resize
+.ft
+is specified, different sizes are accepted and the LOCDEV size is applied to REMDEV in patch mode which is only supported for (image) files (not devices). When
+.ft B
+minsize
+.ft
+is specified, the smallest size of both LOCDEV and REMDEV is considered (excess data is ignored).
+ 
+When the
+.ft B
+\-\-diffsize
+.ft
+command line option is not specified at all, it defaults to
+.ft B
+\-\-diffsize=strict.
+.ft
+When the
+.ft B
+\-\-diffsize
+.ft
+is specified, but without any of the additional options, it defaults to
+.ft B
+\-\-diffsize=resize
+.ft
+which is consistent with earlier versions of bdsync.
 .TP
 .B \-\-zeroblocks
 Makes bdsync (in client mode and server mode) identify zero-filled blocks and optimize hashes for these blocks. This may be usefull for sparse files with lots of zero filled blocks. 

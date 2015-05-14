@@ -11,7 +11,13 @@ is_md5sum_available ()
 
 get_md5 ()
 {
-     md5sum "$1" | awk '{ print $1}'
+     if [ "$2" == "" ]
+     then
+         md5sum "$1"
+     else
+         dd "if=$1" skip="$2" bs=1024 count="$3" 2>/dev/null | md5sum -
+     fi \
+     | awk '{ print $1}'
 }
 
 abort_msg ()

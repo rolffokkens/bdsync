@@ -29,8 +29,8 @@ do_check ()
     check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "be2f3119e1b3f8ff8dff771065488a82"
     check_sum "Bad checksum MD5REM1" "$MD5REM1" "231e3b8641188b6acb24d94df96751d7"
 
-    ./bdsync --diffsize "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
-    ./bdsync --diffsize "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
+    ./bdsync --diffsize=resize "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
+    ./bdsync --diffsize=resize "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
 
     #
     # bdsync file shoudl be about 1 4k block in size
@@ -41,8 +41,8 @@ do_check ()
     MD5BD1=`get_md5 $BDSYNC1`
     MD5BD2=`get_md5 $BDSYNC2`
 
-    ./bdsync --diffsize --patch < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
-    ./bdsync --diffsize --patch < $BDSYNC2 2> "$TMPF" || abort_msg "bdsync (3) failed"
+    ./bdsync --diffsize=resize --patch < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
+    ./bdsync --diffsize=resize --patch < $BDSYNC2 2> "$TMPF" || abort_msg "bdsync (4) failed"
 
     MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`
@@ -51,4 +51,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5LOC1"
 }
 
-handle_check do_check "Handling different size (zeroes) files with --diffsize option"
+handle_check do_check "Handling different size (zeroes) files with --diffsize=resize option"
