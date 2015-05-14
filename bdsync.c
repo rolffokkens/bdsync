@@ -1400,7 +1400,7 @@ int gen_hashes ( hash_alg md
                , off_t start, off_t step, int nstep)
 {
     unsigned char *buf, *fbuf;
-    off_t         nrd, lenend;
+    off_t         nrd;
     int           hashsize = hash_getsize (md);
     hash_ctx      dg_ctx;
 
@@ -1443,7 +1443,6 @@ int gen_hashes ( hash_alg md
 
         nstep--;
         start  += step;
-        lenend -= step;
     }
     *retsiz = buf - *retbuf;
 
@@ -1981,7 +1980,6 @@ int do_patch (char *dev, int warndev, int diffsize)
             || fread (&blen, 1, sizeof (blen), stdin) != sizeof (blen)
             || blen < 0 || pos + blen > ndevsize) {
             verbose (0, "Bad data (3)\n");
-            verbose (0, "Bad data (3) %d %d\n", (int)(pos + blen), (int)ndevsize);
             exit (1);
         }
         if (pos == 0 && blen == 0) break;
