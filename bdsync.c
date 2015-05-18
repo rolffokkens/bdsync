@@ -1815,9 +1815,11 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     parse_size (msg, msglen, &rdevsize);
     free (msg);
     if (rdevsize != ldevsize) {
+        if (diffsize & ds_warn) {
+            verbose (0, "Different sizes local=%lld remote=%lld\n", ldevsize, rdevsize);
+        }
         switch (diffsize & ds_mask) {
         case ds_strict:
-            verbose (0, "Different sizes local=%lld remote=%lld\n", ldevsize, rdevsize);
             exit (1);
             break;
         case ds_minsize:
@@ -1953,9 +1955,11 @@ int do_patch (char *dev, int warndev, int diffsize)
     devfd = opendev (dev, &devsize, O_RDWR);
 
     if (ndevsize != devsize) {
+        if (diffsize & ds_warn) {
+            verbose (0, "Different sizes current=%lld patch=%lld\n", devsize, ndevsize);
+        }
         switch (diffsize & ds_mask) {
         case ds_strict:
-            verbose (0, "Sizes don't match device=%lld input=%lld\n", devsize, ndevsize);
             exit (1);
             break;
         case ds_resize:
@@ -2197,7 +2201,13 @@ int main (int argc, char *argv[])
     }
     vhandler = verbose_printf;
 
-    if ((diffsize & ds_mask) == ds_none) diffsize |= ds_strict;
+    switch (diffsize & ds_mask) {
+    case ds_none:
+        diffsize |= ds_strict;
+    case ds_strict:
+        diffsize |= ds_warn;
+        break;
+    }
 
     hsmall = blocksize;
     hlarge = (twopass ? 64 * hsmall : hsmall);

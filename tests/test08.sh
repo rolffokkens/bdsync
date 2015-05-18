@@ -24,13 +24,10 @@ do_check ()
     check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "be2f3119e1b3f8ff8dff771065488a82"
     check_sum "Bad checksum MD5REM1" "$MD5REM1" "57e7487c6ac9184d6a23cd5d2ead6bc2"
 
-    ./bdsync --remdata "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
-    ./bdsync           "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
-
-    #
-    # bdsync file shoudl be about 1 4k block in size
-    #
+    ./bdsync --zeroblocks --remdata "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
     check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
+
+    ./bdsync --zeroblocks           "./bdsync -s --zeroblocks" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
     check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000
 
     MD5BD1=`get_md5 $BDSYNC1`
@@ -38,17 +35,13 @@ do_check ()
 
     check_sum "Inconsistent checksums MD5BD1/MD5BD2" "$MD5BD1" "$MD5BD2"
 
-    mv $LOCDEV $LOCDEV.rename
+    ./bdsync --patch < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
 
-    ./bdsync --patch=$LOCDEV.rename --warndev < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
-
-    [[ "`cat $TMPF`" == Warning:* ]] || abort_msg "ERROR: \"Warning: different device names\" SHOULD be issued"
-
-    MD5LOC2=`get_md5 $LOCDEV.rename`
+    MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`
 
     check_sum "Bad checksum MD5LOC2" "$MD5LOC2" "$MD5REM1"
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "--warndev option when a warning SHOULD be issued"
+handle_check do_check "handling --zeroblocks with --remdata option"

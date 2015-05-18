@@ -64,7 +64,7 @@ when the "binary patchfile" has limited size.
 Makes bdsync (in client mode) write the remote data to standard output instead of the local blocks that differs.
 
 .TP
-.B \-\-diffsize[=OPTION]
+.B \-\-diffsize[=OPTION[,warn]]
 Specifies how bdsync (in client mode and patch mode) should handle different sizes of devices. Possible values for OPTION are
 .ft B
 strict, 
@@ -105,6 +105,12 @@ is specified, but without any of the additional options, it defaults to
 \-\-diffsize=resize
 .ft
 which is consistent with earlier versions of bdsync.
+
+When the additional
+.ft B
+warn
+.ft
+option is specified, a warning is issued when sizes differ.
 .TP
 .B \-\-zeroblocks
 Makes bdsync (in client mode and server mode) identify zero-filled blocks and optimize hashes for these blocks. This may be usefull for sparse files with lots of zero filled blocks. 
