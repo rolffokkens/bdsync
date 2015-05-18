@@ -1916,7 +1916,7 @@ int do_patch (char *dev, int warndev, int diffsize)
     char           *devname;
 
     if (!fgets (buf, bufsize - 1, stdin)) {
-        verbose (0, "do_patch: fgets: %s\n", strerror (errno));
+        verbose (0, "do_patch: EOF(stdin)\n");
         exit (1);
     }
     len = strlen (buf);
