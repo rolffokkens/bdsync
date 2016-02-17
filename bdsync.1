@@ -163,3 +163,46 @@ apply the (complete) patchfile or not.
 Compression of the patchfile can easily be done, without introducing complexity in
 bdsync itself.
 .PP 
+.SH EXIT STATUS
+.TP
+0
+completed successfully
+.TP
+1
+invalid or conflicting parameters supplied
+.TP
+2
+invalid patch format
+.TP
+3
+size mismatch of source and destination blockdevice
+.TP
+4
+protocol error
+.TP
+5
+checksum error
+.TP
+6
+read error
+.TP
+7
+failed to collect randomness
+.TP
+8
+process management error
+.TP
+9
+write error
+.TP
+10
+digest error
+.TP
+11
+transmission error
+.TP
+12
+IO error
+.TP
+13
+connection error
