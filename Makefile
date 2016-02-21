@@ -6,7 +6,6 @@ CRYPTO_DEF=
 CRYPTO_LDFLAGS=-lcrypto
 endif
 CFLAGS=-O3
-CC=cc
 
 bdsync: bdsync.c checkzero.c
 	$(CC) -Wall $(CFLAGS) $(CRYPTO_DEF) -o bdsync bdsync.c checkzero.c $(CRYPTO_LDFLAGS)

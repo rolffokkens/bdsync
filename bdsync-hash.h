@@ -11,6 +11,7 @@
 	#define hash_init(ctx,md) {gnutls_hash_init (&ctx, md);}
 	#define hash_update(ctx,buf,len) (gnutls_hash (ctx, buf, len))
 	#define hash_finish(ctx,buf) {gnutls_hash_deinit (ctx, buf);}
+	#define hash_global_cleanup gnutls_global_deinit
 #else
 	#include <openssl/evp.h>
 
@@ -23,4 +24,5 @@
 	#define hash_init(ctx,md) {ctx = EVP_MD_CTX_create(); EVP_DigestInit_ex (ctx, md, NULL);}
 	#define hash_update(ctx,buf,len) (EVP_DigestUpdate (ctx, buf, len))
 	#define hash_finish(ctx,buf) {EVP_DigestFinal_ex (ctx, buf, NULL); EVP_MD_CTX_destroy (ctx);}
+	#define hash_global_cleanup EVP_cleanup
 #endif

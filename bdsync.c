@@ -65,6 +65,9 @@
 #include <syslog.h>
 #include <errno.h>
 #include <poll.h>
+#ifdef DBG_MTRACE
+# include <mcheck.h>
+#endif
 
 #define RDAHEAD (1024*1024)
 
@@ -1472,7 +1475,7 @@ int do_server (int zeroblocks)
     char             *msg;
     size_t           msglen;
     unsigned char    token;
-    unsigned char    *buf, *salt;
+    unsigned char    *buf, *salt = NULL;
     int              devfd = -1, nstep;
     int              saltsize = 0;
     off_t            devsize = 0, start, step;
@@ -1481,7 +1484,7 @@ int do_server (int zeroblocks)
     struct           rd_queue rd_queue;
     hash_alg         dg_md = hash_null;
     struct cs_state  *cs_state;
-    char             *dg_nm;
+    char             *dg_nm = NULL;
     struct zero_hash *zh;
 
     init_wr_queue (&wr_queue, STDOUT_FILENO);
@@ -1510,13 +1513,16 @@ int do_server (int zeroblocks)
         case msg_hello:
             exp = msg_devfile;
             parse_hello (msg, msglen, &hello);
+            free (hello);
             break;
         case msg_devfile:
             parse_devfile (msg, msglen, &devfile);
             devfd = opendev (devfile, &devsize, O_RDONLY);
             send_size (&wr_queue, devsize);
+            free (devfile);
             break;
         case msg_digests:
+            /* assert (salt == NULL) */
             parse_digests (msg, msglen, &saltsize, &salt, &dg_nm, &dg_md, &cs_state);
             break;
         case msg_gethashes:
@@ -1548,6 +1554,9 @@ int do_server (int zeroblocks)
         free (msg);
     }
     flush_wr_queue (&wr_queue, 1);
+
+    free (salt);
+    free (dg_nm);
 
     /* destroy md? */
 
@@ -1760,6 +1769,8 @@ int hashmatch ( const char *dg_nm
         free (lhbuf);
     }
 
+    free (rhbuf);
+
     verbose (2, "hashmatch: recurs=%d\n", recurs);
 
     return 0;
@@ -1809,6 +1820,7 @@ int do_client (char *digest, char *checksum, char *command, char *ldev, char *rd
     parse_hello (msg, msglen, &hello);
     send_devfile (&wr_queue, rdev);
     free (msg);
+    free (hello);
 
     get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
     check_token ("", token, msg_size);
@@ -2125,6 +2137,12 @@ static struct option long_options[] = {
     , {0,            0,                 0,  0  }
 };
 
+enum mode {
+    mode_patch
+,   mode_client
+,   mode_server
+};
+
 int main (int argc, char *argv[])
 {
     off_t blocksize  = 4096, hlarge, hsmall;
@@ -2136,12 +2154,12 @@ int main (int argc, char *argv[])
     int   diffsize   = ds_none;
     int   zeroblocks = 0;
     int   warndev    = 0;
+    int   mode       = mode_client;
+    int   retval     = 1;
     char  *patchdev  = NULL;
     char  *hash      = NULL;
     char  *checksum  = NULL;
     char  *cp;
-
-    hash_global_init ();
 
     for (;;) {
         int option_index = 0;
@@ -2155,9 +2173,11 @@ int main (int argc, char *argv[])
         switch (c) {
         case 's':
             isserver = 1;
+            mode     = mode_server;
             break;
         case 'p':
             ispatch  = 1;
+            mode     = mode_patch;
             patchdev = (optarg ? optarg : NULL);
             break;
         case 'v':
@@ -2212,6 +2232,11 @@ int main (int argc, char *argv[])
     hsmall = blocksize;
     hlarge = (twopass ? 64 * hsmall : hsmall);
 
+    if (isserver && ispatch) {
+        fprintf (stderr, "Contradictive options --server and --patch\n");
+        exit (1);
+    }
+
     if (checksum && (strlen (checksum) > 127)) {
         verbose (0, "paramater too long for option --checksum\n");
         exit (1);
@@ -2227,11 +2252,6 @@ int main (int argc, char *argv[])
         exit (1);
     }
 
-    if (isserver && ispatch) {
-        fprintf (stderr, "Contradictive options --server and --patch\n");
-        exit (1);
-    }
-
     if (ispatch || isserver) {
         if (hash) {
             fprintf (stderr, "Contradictive options --hash and --%s\n", (isserver ? "server" : "patch"));
@@ -2243,30 +2263,45 @@ int main (int argc, char *argv[])
         }
     }
 
-    if (ispatch) {
+#   ifdef DBG_MTRACE
+    mtrace ();
+#   endif
+
+    hash_global_init ();
+
+    switch (mode) {
+    case mode_patch:
         if (optind != argc) {
             verbose (0, "Bad number of arguments %d\n", argc - optind);
             return 1;
         }
-        return do_patch (patchdev, warndev, diffsize);
-    }
-
-    if (isserver) {
+        retval = do_patch (patchdev, warndev, diffsize);
+        break;
+    case mode_server:
         vhandler = verbose_syslog;
         if (optind != argc) {
             verbose (0, "Bad number of arguments %d\n", argc - optind);
             return 1;
         }
-        return do_server (zeroblocks);
+        retval = do_server (zeroblocks);
+        break;
+    case mode_client:
+        if (optind != argc - 3) {
+            verbose (0, "Bad number of arguments %d\n", argc - optind);
+            return 1;
+        }
+
+        if (!hash) hash = "md5";
+
+        retval = do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize, zeroblocks);
+        break;
     }
 
-    // client
-    if (optind != argc - 3) {
-        verbose (0, "Bad number of arguments %d\n", argc - optind);
-        return 1;
-    }
+    hash_global_cleanup ();
 
-    if (!hash) hash = "md5";
+#   ifdef DBG_MTRACE
+    muntrace ();
+#   endif
 
-    return do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize, zeroblocks);
+    return retval;
 }
