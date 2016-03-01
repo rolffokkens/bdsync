@@ -65,6 +65,7 @@
 #include <syslog.h>
 #include <errno.h>
 #include <poll.h>
+#include <sys/wait.h>
 #ifdef DBG_MTRACE
 # include <mcheck.h>
 #endif
@@ -1806,9 +1807,10 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     unsigned short  devlen;
     struct          wr_queue wr_queue;
     struct          rd_queue rd_queue;
-    int             hashsize;
+    int             hashsize, status;
     hash_alg        dg_md;
     struct cs_state *cs_state;
+    pid_t           pid;
 
     dg_md = hash_getbyname (digest);
     if (!dg_md) {
@@ -1828,7 +1830,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     ldevfd = opendev (ldev, &ldevsize, O_RDONLY);
 
-    do_command (command, &rd_queue, &wr_queue);
+    pid = do_command (command, &rd_queue, &wr_queue);
 
     send_hello (&wr_queue, "CLIENT");
 
@@ -1934,7 +1936,9 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     parse_done (msg, msglen);
     free (msg);
 
-    return exitcode_success;
+    if (waitpid (pid, &status, 0) == -1) exitmsg (exitcode_process_error, "waitpid: %s\n", strerror (errno));
+
+    return WEXITSTATUS(status);
 };
 
 enum exitcode do_patch (char *dev, int warndev, int diffsize)
