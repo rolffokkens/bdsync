@@ -236,12 +236,12 @@ void exitmsg (enum exitcode code, char * format, ...)
 
 void cleanup_wr_queue (struct wr_queue *pqueue)
 {
-    verbose (0, "cleanup_wr_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
+    verbose (3, "cleanup_wr_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
 };
 
 void cleanup_rd_queue (struct rd_queue *pqueue)
 {
-    verbose (0, "cleanup_rd_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
+    verbose (3, "cleanup_rd_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
 };
 
 struct zero_hash {
