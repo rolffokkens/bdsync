@@ -69,6 +69,7 @@
 #ifdef DBG_MTRACE
 # include <mcheck.h>
 #endif
+#include <malloc.h>
 
 #define RDAHEAD (1024*1024)
 
@@ -232,6 +233,16 @@ void exitmsg (enum exitcode code, char * format, ...)
     va_end (args);
 
     exit (code);
+};
+
+void dump_mallinfo (void)
+{
+    struct mallinfo mi;
+
+    mi = mallinfo ();
+
+    verbose (3, "dump_mallinfo: arena=%d, ordblks=%d, smblks=%d, hblks=%d, hblkhd=%d, usmblks=%d, fsmblks=%d, uordblks=%d, fordblks=%d, keepcost=%d\n"
+              , mi.arena, mi.ordblks, mi.smblks, mi.hblks, mi.hblkhd, mi.usmblks, mi.fsmblks, mi.uordblks, mi.fordblks, mi.keepcost);
 };
 
 void cleanup_wr_queue (struct wr_queue *pqueue)
@@ -1635,6 +1646,8 @@ enum exitcode do_server (int zeroblocks)
 
     /* destroy md? */
 
+    dump_mallinfo ();
+
     return exitcode_success;
 };
 
@@ -2006,6 +2019,8 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     cleanup_rd_queue (&rd_queue);
     cleanup_wr_queue (&wr_queue);
+
+    dump_mallinfo ();
 
     return WEXITSTATUS(status);
 };
