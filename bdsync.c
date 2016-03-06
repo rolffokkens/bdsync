@@ -1787,9 +1787,8 @@ int hashmatch ( const char *dg_nm
             pos += rstep;
         }
         free (lhbuf);
+        free (rhbuf);
     }
-
-    free (rhbuf);
 
     verbose (2, "hashmatch: recurs=%d\n", recurs);
 
