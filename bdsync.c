@@ -110,6 +110,12 @@ enum diffsize {
 ,   ds_warn   = 0x80
 };
 
+struct context {
+    int *blockreqs;
+};
+
+typedef int (*async_handler)(struct context *, unsigned char, char *, size_t);
+
 extern int checkzero (void *p, int len);
 
 void set_blocking(int fd)
@@ -159,7 +165,7 @@ struct wr_queue {
 
 struct rd_queue {
     size_t len, maxlen;
-    struct msg *phd, *ptl;
+    struct msg *phd, *ptl, *ptmp;
     size_t pos;  /* refers to read pos in head msg */
     int    rd_fd;
     char   tlen [sizeof (u_int32_t)];
@@ -185,6 +191,7 @@ void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
     pqueue->maxlen = 0;
     pqueue->phd    = NULL;
     pqueue->ptl    = NULL;
+    pqueue->ptmp   = NULL;
     pqueue->pos    = 0;
     pqueue->rd_fd  = rd_fd;
     pqueue->state  = qhdr;
@@ -547,7 +554,8 @@ off_t char2int (char *buf, int bytes)
 }
 
 enum messages {
-    msg_hello = 1
+    msg_none = 0
+,   msg_hello
 ,   msg_devfile
 ,   msg_size
 ,   msg_digests
@@ -622,7 +630,7 @@ int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_
     pqueue->ptl  = pmsg;
     pqueue->len += (sizeof (pqueue->tlen) + len + 1);
     if (pqueue->len > pqueue->maxlen) pqueue->maxlen = pqueue->len;
- 
+
     return 0;
 }
 
@@ -693,10 +701,10 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
     return retval;
 }
 
-int fill_rd_queue (struct rd_queue *pqueue)
+int fill_rd_queue (struct rd_queue *pqueue, async_handler handler, struct context *context)
 {
     char   *prd;
-    size_t retval = 0, len, tmp;
+    size_t retval = 0, addlen = 0, len, tmp;
 
     verbose (3, "fill_rd_queue: len = %lld\n",  (long long)pqueue->len);
 
@@ -715,29 +723,48 @@ int fill_rd_queue (struct rd_queue *pqueue)
                 pmsg->pnxt = NULL;
                 pmsg->len  = len;
 
-                if (pqueue->ptl) {
-                    pqueue->ptl->pnxt = pmsg;
-                } else {
-                    pqueue->phd = pmsg;
-                }
-                pqueue->ptl   = pmsg;
+                pqueue->ptmp  = pmsg;
                 pqueue->state = qdata;
                 pqueue->pos   = 0;
                 continue;
             }
             prd = (char *)(pqueue->tlen) + pqueue->pos;
         } else {
-            len = pqueue->ptl->len - pqueue->pos;
+            struct msg *pmsg = pqueue->ptmp;
+
+            len = pmsg->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(pqueue->ptl->data[0])], (int)pqueue->ptl->len - 1);
+                /* Full message present */
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(pmsg->data[0])], (int)pmsg->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
+                pqueue->ptmp  = NULL;
 
+                if (handler) {
+                    unsigned char token  = pmsg->data[0];
+                    char          *msg   = pmsg->data + 1;
+                    size_t        msglen = pmsg->len - 1;
+
+                    if (handler (context, token, msg, msglen)) {
+                        /* Handled, no need to queue it */
+                        addlen -= (sizeof (pqueue->tlen) + pmsg->len);
+                        retval ++;
+
+                        free (pmsg);
+                        continue;
+                    }
+                }
+
+                if (pqueue->ptl) {
+                    pqueue->ptl->pnxt = pmsg;
+                } else {
+                    pqueue->phd       = pmsg;
+                }
+                pqueue->ptl   = pmsg;
                 continue;
             }
-            prd = pqueue->ptl->data + pqueue->pos;
-
+            prd = pmsg->data + pqueue->pos;
         }
         tmp = read (pqueue->rd_fd, prd, len);
         if (tmp == 0) {
@@ -756,28 +783,32 @@ int fill_rd_queue (struct rd_queue *pqueue)
             exit (exitcode_read_error);
         }
         pqueue->pos += tmp;
-        retval += tmp;
+        addlen += tmp;
 
-        verbose (3, "fill_rd_queue: len = %lld\n",  (long long)(pqueue->len + retval));
+        verbose (3, "fill_rd_queue: len = %lld\n",  (long long)(pqueue->len + addlen));
     }
-    pqueue->len += retval;
+    pqueue->len += addlen;
     if (pqueue->len > pqueue->maxlen) pqueue->maxlen = pqueue->len;
- 
+
     return retval;
 }
 
 struct timeval get_rd_wait = {0, 0};
 
-int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsigned char *token, char **msg, size_t *msglen)
+int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsigned char *token, char **msg, size_t *msglen, async_handler handler, struct context *context)
 {
     struct pollfd  pfd[2];
     struct msg     *phd;
     int            tmp, nfd;
     struct timeval tv1, tv2;
+    int            async_cnt = 0;
+
+    verbose (3, "get_rd_queue: handler = %d\n", (handler != NULL));
 
     gettimeofday (&tv1, NULL);
 
     while (    prd_queue->state != qeof
+           && !async_cnt
            && (prd_queue->state != qhdr || prd_queue->phd == NULL)) {
         pfd[0].fd     = prd_queue->rd_fd;
         pfd[0].events = POLLIN;
@@ -790,7 +821,7 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
 
         verbose (3, "get_rd_queue: poll %d\n", tmp);
 
-        if (pfd[0].revents & POLLIN)  fill_rd_queue (prd_queue);
+        if (pfd[0].revents & POLLIN) async_cnt += fill_rd_queue (prd_queue, handler, context);
         if (pfd[1].revents) {
             if (pfd[1].revents & POLLOUT) {
                 flush_wr_queue (pwr_queue, 0);
@@ -834,6 +865,12 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
     phd = prd_queue->phd;
 
     if (phd == NULL) {
+        if (async_cnt) {
+            *token = msg_none;
+            *msg   = NULL;
+            verbose (2, "get_rd_queue: msg = -, len = 0\n");
+            return 0;
+        }
         verbose (0, "get_rd_queue: EOF %d\n", pfd[1].fd);
         exit (exitcode_read_error);
     }
@@ -851,7 +888,7 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
 
     verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgstring[*token], *msglen);
 
-    return 0;
+    return 1;
 }
 
 int send_msgstring (struct wr_queue *pqueue, int msg, char *str)
@@ -1434,7 +1471,8 @@ int gen_hashes ( hash_alg md
                , int saltsize, unsigned char *salt
                , unsigned char **retbuf, size_t *retsiz, int fd
                , off_t devsize
-               , off_t start, off_t step, int nstep)
+               , off_t start, off_t step, int nstep
+               , async_handler handler, struct context *context)
 {
     unsigned char *buf, *fbuf;
     off_t         nrd;
@@ -1452,7 +1490,7 @@ int gen_hashes ( hash_alg md
 
     while (nstep) {
         flush_wr_queue (pwr_queue, 0);
-        fill_rd_queue (prd_queue);
+        fill_rd_queue (prd_queue, handler, context);
 
         nrd = vpread (fd, fbuf, step, start, devsize);
 
@@ -1536,7 +1574,7 @@ enum exitcode do_server (int zeroblocks)
 
     while (goon) {
         flush_wr_queue (&wr_queue, 0);
-        get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
+        get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
 
         if (exp) {
             if (token != exp) exit (exitcode_protocol_error);
@@ -1562,7 +1600,7 @@ enum exitcode do_server (int zeroblocks)
         case msg_gethashes:
             parse_gethashes (msg, msglen, &start, &step, &nstep);
             zh = (zeroblocks ? find_zero_hash (dg_nm, step, saltsize, salt) : NULL);
-            gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devfd, devsize, start, step, nstep);
+            gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devfd, devsize, start, step, nstep, NULL, NULL);
             send_hashes (&wr_queue, start, step, nstep, buf, len);
             free (buf);
             break;
@@ -1661,6 +1699,25 @@ int write_block (off_t pos, unsigned short len, char *pblock)
     return 0;
 }
 
+int async_block_write (struct context *ctx, unsigned char token, char *msg, size_t msglen)
+{
+    char  *pblock;
+    off_t pos, len;
+
+    if (token != msg_block) return 0;
+
+    verbose (3, "async_block_write entry\n");
+
+    parse_block (msg, msglen, &pos, &len, &pblock);
+    write_block (pos, len, pblock);
+
+    (*(ctx->blockreqs))--;
+
+    verbose (3, "async_block_write exit\n");
+
+    return 1;
+}
+
 int hashmatch ( const char *dg_nm
               , hash_alg dg_md
               , struct cs_state *cs_state
@@ -1675,20 +1732,23 @@ int hashmatch ( const char *dg_nm
               , int recurs
               , int zeroblocks)
 {
-    int           hashsteps;
-    unsigned char *rhbuf;
-    unsigned char *lhbuf;
-    size_t        lhsize;
-    char          *msg;
-    size_t        msglen;
-    unsigned char token;
-    off_t         rstart, rstep, mdevsize;
-    int           rnstep, hashsize;
+    int              hashsteps;
+    unsigned char    *rhbuf;
+    unsigned char    *lhbuf;
+    size_t           lhsize;
+    char             *msg;
+    size_t           msglen;
+    unsigned char    token;
+    off_t            rstart, rstep, mdevsize;
+    int              rnstep, hashsize;
     struct zero_hash *zh;
+    struct context   context;
 
     verbose (2, "hashmatch: recurs=%d hashstart=%lld hashend=%lld hashstep=%lld maxsteps=%d devsize=%lld vdevsize=%lld\n"
             , recurs, (long long)hashstart, (long long)hashend, (long long)hashstep, maxsteps
             , (long long)ldevsize, (long long)rdevsize);
+
+    context.blockreqs = blockreqs;
 
     mdevsize = (rdevsize > ldevsize ? rdevsize : ldevsize);
 
@@ -1710,29 +1770,18 @@ int hashmatch ( const char *dg_nm
 
         if (recurs) break;
 
-        token = 0;
+        token = msg_none;
 
+        /* while we expect msg_hashes or msg_block try to get them ... */
         while (*hashreqs || *blockreqs) {
-            get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen);
-            /* Get the other side's hashes or blocks */
-            if (token == msg_hashes) break;
+            /* handle msg_block in async_block_write */
+            get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen, async_block_write, &context);
 
-            /* We handle blocks within this loop */
-            check_token ("", token, msg_block);
-            (*blockreqs)--;
-
-            char  *pblock;
-            off_t pos, len;
-
-            parse_block (msg, msglen, &pos, &len, &pblock);
-            write_block (pos, len, pblock);
-
-            free (msg);
-
-            token = 0;
+            /* when msg_block is handled get_rd_queue may return msg_none */
+            if (token != msg_none) break;
         }
 
-        if (!token) continue;
+        if (token == msg_none) continue;
 
         check_token ("", token, msg_hashes);
         (*hashreqs)--;
@@ -1744,7 +1793,8 @@ int hashmatch ( const char *dg_nm
         zh = (zeroblocks ? find_zero_hash (dg_nm, rstep, saltsize, salt) : NULL);
         /* Generate our own list of hashes */
         gen_hashes (dg_md, zh, (rstep == hashstep ? cs_state : NULL)
-                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, ldevsize, rstart, rstep, rnstep);
+                   , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devfd, ldevsize, rstart, rstep, rnstep
+                   , async_block_write, &context);
 
         off_t         pos = rstart;
         unsigned char *lp = lhbuf, *rp = rhbuf;
@@ -1852,14 +1902,14 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     char *hello   = NULL;
 
-    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
+    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_hello);
     parse_hello (msg, msglen, &hello);
     send_devfile (&wr_queue, rdev);
     free (msg);
     free (hello);
 
-    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen);
+    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_size);
     parse_size (msg, msglen, &rdevsize);
     free (msg);
@@ -1915,7 +1965,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
         if (remdata) {
             send_getchecksum (&wr_queue);
-            get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen);
+            get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen, NULL, NULL);
             check_token ("", token, msg_checksum);
             parse_checksum (msg, msglen, &clen, &cbuf);
             free (msg);
@@ -1947,7 +1997,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     verbose (2, "do_client: get_rd_wait = %d.%06d\n", get_rd_wait.tv_sec, get_rd_wait.tv_usec);
 
     send_done (&wr_queue);
-    get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen);
+    get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_done);
     parse_done (msg, msglen);
     free (msg);
