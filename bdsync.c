@@ -149,7 +149,7 @@ enum qstate {
 };
 
 struct wr_queue {
-    size_t len;
+    size_t len, maxlen;
     struct msg *phd, *ptl;
     size_t pos; /* refers to write pos in head msg */
     int    wr_fd;
@@ -158,7 +158,7 @@ struct wr_queue {
 };
 
 struct rd_queue {
-    size_t len;
+    size_t len, maxlen;
     struct msg *phd, *ptl;
     size_t pos;  /* refers to read pos in head msg */
     int    rd_fd;
@@ -168,24 +168,26 @@ struct rd_queue {
 
 void init_wr_queue (struct wr_queue *pqueue, int wr_fd)
 {
-    pqueue->len   = 0;
-    pqueue->phd   = NULL;
-    pqueue->ptl   = NULL;
-    pqueue->pos   = 0;
-    pqueue->wr_fd = wr_fd;
-    pqueue->state = qhdr;
+    pqueue->len    = 0;
+    pqueue->maxlen = 0;
+    pqueue->phd    = NULL;
+    pqueue->ptl    = NULL;
+    pqueue->pos    = 0;
+    pqueue->wr_fd  = wr_fd;
+    pqueue->state  = qhdr;
 
     set_nonblocking (wr_fd);
 }
 
 void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
 {
-    pqueue->len   = 0;
-    pqueue->phd   = NULL;
-    pqueue->ptl   = NULL;
-    pqueue->pos   = 0;
-    pqueue->rd_fd = rd_fd;
-    pqueue->state = qhdr;
+    pqueue->len    = 0;
+    pqueue->maxlen = 0;
+    pqueue->phd    = NULL;
+    pqueue->ptl    = NULL;
+    pqueue->pos    = 0;
+    pqueue->rd_fd  = rd_fd;
+    pqueue->state  = qhdr;
 
     set_nonblocking (rd_fd);
 }
@@ -223,6 +225,16 @@ void exitmsg (enum exitcode code, char * format, ...)
     va_end (args);
 
     exit (code);
+};
+
+void cleanup_wr_queue (struct wr_queue *pqueue)
+{
+    verbose (0, "cleanup_wr_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
+};
+
+void cleanup_rd_queue (struct rd_queue *pqueue)
+{
+    verbose (0, "cleanup_rd_queue: len=%ld, maxlen=%ld\n", (long)(pqueue->len), (long)(pqueue->maxlen));
 };
 
 struct zero_hash {
@@ -609,7 +621,8 @@ int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_
     }
     pqueue->ptl  = pmsg;
     pqueue->len += (sizeof (pqueue->tlen) + len + 1);
-
+    if (pqueue->len > pqueue->maxlen) pqueue->maxlen = pqueue->len;
+ 
     return 0;
 }
 
@@ -748,7 +761,8 @@ int fill_rd_queue (struct rd_queue *pqueue)
         verbose (3, "fill_rd_queue: len = %lld\n",  (long long)(pqueue->len + retval));
     }
     pqueue->len += retval;
-
+    if (pqueue->len > pqueue->maxlen) pqueue->maxlen = pqueue->len;
+ 
     return retval;
 }
 
@@ -1575,6 +1589,9 @@ enum exitcode do_server (int zeroblocks)
     }
     flush_wr_queue (&wr_queue, 1);
 
+    cleanup_rd_queue (&rd_queue);
+    cleanup_wr_queue (&wr_queue);
+
     free (salt);
     free (dg_nm);
 
@@ -1936,6 +1953,9 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     free (msg);
 
     if (waitpid (pid, &status, 0) == -1) exitmsg (exitcode_process_error, "waitpid: %s\n", strerror (errno));
+
+    cleanup_rd_queue (&rd_queue);
+    cleanup_wr_queue (&wr_queue);
 
     return WEXITSTATUS(status);
 };
