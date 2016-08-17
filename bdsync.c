@@ -2138,7 +2138,6 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             verbose (0, "Write error: pos=%lld len=%d\n", (long long)pos, blen);
             exit (exitcode_write_error);
         }
-        posix_fadvise(devfd, pos, blen, POSIX_FADV_DONTNEED);
     }
 
     {
