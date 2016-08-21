@@ -23,9 +23,9 @@ do_check ()
     check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "d09bf45c318f2f7482b4b595484caef6"
     check_sum "Bad checksum MD5REM1" "$MD5REM1" "b6d81b360a5672d80c27430f39153e2c"
 
-    ./bdsync --fixedsalt --checksum md5 --remdata     "./bdsync -s -v" $LOCDEV $REMDEV > $BDSYNC1 \
+    ./bdsync --fixedsalt --checksum md5 --remdata     "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 \
         || abort_msg "bdsync (1) failed"
-    ./bdsync --fixedsalt --checksum md5 --hash sha256 "./bdsync -s -v" $REMDEV $LOCDEV > $BDSYNC2 \
+    ./bdsync --fixedsalt --checksum md5 --hash sha256 "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 \
         || abort_msg "bdsync (2) failed"
 
     #
