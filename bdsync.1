@@ -111,9 +111,15 @@ When the additional
 warn
 .ft
 option is specified, a warning is issued when sizes differ.
+
 .TP
 .B \-\-zeroblocks
 Makes bdsync (in client mode and server mode) identify zero-filled blocks and optimize hashes for these blocks. This may be usefull for sparse files with lots of zero filled blocks. 
+
+.TP
+.B \-\-flushcache
+This client option makes both bdsync client and server actively inform the OS the data is no longer needed after reading it hence reducing OS buffer cache polution by bcache. This
+works especially well when deltas are small, because in that case bcache itself won't be reading blocks twice.
 
 .SH "USAGE"
 
