@@ -350,9 +350,10 @@ struct cs_state *init_checksum (const char *checksum)
 struct dev {
     int   fd;
     off_t size;
+    off_t relpos;
 };
 
-int vpread (struct dev *devp, void *buf, off_t len, off_t pos, int flushcache, off_t relpos)
+int vpread (struct dev *devp, void *buf, off_t len, off_t pos, int flushcache)
 {
     off_t rlen = len;
     int ret    = 0;
@@ -364,8 +365,8 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos, int flushcache, o
         if (rlen < 0) rlen = 0;
     }
     if (rlen) {
-        if (relpos > pos) {
-            verbose (0, "vpread: pos < relpos: relpos=%lld, pos=%lld", (long long)relpos, (long long) pos);
+        if (devp->relpos > pos) {
+            verbose (0, "vpread: pos < relpos: relpos=%lld, pos=%lld\n", (long long)devp->relpos, (long long) pos);
         }
         ret = pread (devp->fd, cbuf, rlen, pos);
         if (ret < 0) exitmsg (exitcode_read_error, "vpread: %s\n", strerror (errno));
@@ -381,7 +382,7 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos, int flushcache, o
     return ret;
 }
 
-int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t len, unsigned char *buf, int flushcache, off_t relpos)
+int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t len, unsigned char *buf, int flushcache)
 {
     if (!state) return 0;
 
@@ -398,7 +399,7 @@ int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t 
             verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
                     , (long long) state->nxtpos, blen);
 
-            nrd = vpread (devp, fbuf, blen, state->nxtpos, flushcache, relpos);
+            nrd = vpread (devp, fbuf, blen, state->nxtpos, flushcache);
 
             if (nrd != blen) {
                 exitmsg (exitcode_checksum_error
@@ -1359,9 +1360,9 @@ int parse_gethashes ( char *msgbuf, size_t msglen
     return 0;
 };
 
-int parse_hint (off_t start, off_t step, int devfd, off_t *relpos, int *flushcache)
+int parse_hint (off_t start, off_t step, struct dev *devp, int *flushcache)
 {
-    verbose (1, "parse_hint: start=%lld step=%lld relpos=%lld flushcache=%d\n", (long long)start, (long long) step, (long long)(relpos ? *relpos : -1) , (flushcache ? *flushcache : -1));
+    verbose (1, "parse_hint: start=%lld step=%lld relpos=%lld flushcache=%d\n", (long long)start, (long long) step, (long long)(devp->relpos) , (flushcache ? *flushcache : -1));
 
     switch (step) {
     case hint_flushcache:
@@ -1370,10 +1371,10 @@ int parse_hint (off_t start, off_t step, int devfd, off_t *relpos, int *flushcac
         break;
     case hint_relpos:
         /* Hint: Release buffer/cache */
-        if (!devfd) return 0;
-        posix_fadvise (devfd, *relpos, start - *relpos, POSIX_FADV_DONTNEED);
-        verbose (3, "posix_fadvise: start=%lld end=%lld\n", (long long)*relpos, (long long)start);
-        *relpos = start;
+        if (!devp->fd) return 0;
+        posix_fadvise (devp->fd, devp->relpos, start - devp->relpos, POSIX_FADV_DONTNEED);
+        verbose (3, "posix_fadvise: start=%lld end=%lld\n", (long long)(devp->relpos), (long long)start);
+        devp->relpos = start;
         break;
     }
     return 0;
@@ -1537,7 +1538,7 @@ int gen_hashes ( hash_alg md
                , unsigned char **retbuf, size_t *retsiz
                , struct dev *devp
                , off_t start, off_t step, int nstep
-               , int flushcache, off_t relpos
+               , int flushcache
                , async_handler handler, struct context *context)
 {
     unsigned char *buf, *fbuf;
@@ -1558,7 +1559,7 @@ int gen_hashes ( hash_alg md
         flush_wr_queue (pwr_queue, 0);
         fill_rd_queue (prd_queue, handler, context);
 
-        nrd = vpread (devp, fbuf, step, start, flushcache, relpos);
+        nrd = vpread (devp, fbuf, step, start, flushcache);
 
 /* Kills performance; really slow syscall:
         posix_fadvise64 (fd, start + step, RDAHEAD, POSIX_FADV_WILLNEED);
@@ -1578,7 +1579,7 @@ int gen_hashes ( hash_alg md
                     , (long long) start, nrd, tmp);
             free (tmp);
         }
-        update_checksum (cs_state, start, devp, step, fbuf, flushcache, relpos);
+        update_checksum (cs_state, start, devp, step, fbuf, flushcache);
 
         buf += hashsize;
 
@@ -1604,8 +1605,9 @@ struct dev *opendev (char *dev, int flags)
     }
     devp = (struct dev *) malloc (sizeof (struct dev));
     
-    devp->fd   = fd;
-    devp->size = lseek (fd, 0, SEEK_END);
+    devp->fd     = fd;
+    devp->size   = lseek (fd, 0, SEEK_END);
+    devp->relpos = 0;
 
     verbose (1, "opendev: opened %s\n", dev);
 
@@ -1620,7 +1622,7 @@ enum exitcode do_server (int zeroblocks)
     unsigned char    *buf, *salt = NULL;
     int              nstep, hint;
     int              saltsize = 0, flushcache = 0;
-    off_t            start, step, relpos = 0;
+    off_t            start, step;
     size_t           len;
     struct           wr_queue wr_queue;
     struct           rd_queue rd_queue;
@@ -1671,12 +1673,12 @@ enum exitcode do_server (int zeroblocks)
         case msg_gethashes:
             parse_gethashes (msg, msglen, &start, &step, &nstep, &hint);
             if (hint) {
-                parse_hint (start, step, devp->fd, &relpos, &flushcache);
+                parse_hint (start, step, devp, &flushcache);
                 buf = NULL;
                 len = 0;
             } else {
                 zh = (zeroblocks ? find_zero_hash (dg_nm, step, saltsize, salt) : NULL);
-                gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, flushcache, relpos, NULL, NULL);
+                gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, flushcache, NULL, NULL);
             }
             send_hashes (&wr_queue, start, step, nstep, buf, len);
             free (buf);
@@ -1819,7 +1821,7 @@ int hashmatch ( const char *dg_nm
     char             *msg;
     size_t           msglen;
     unsigned char    token;
-    off_t            rstart, rstep, mdevsize, relpos = 0;
+    off_t            rstart, rstep, mdevsize;
     int              rnstep, hashsize, rhint;
     struct zero_hash *zh;
     struct context   context;
@@ -1876,7 +1878,7 @@ int hashmatch ( const char *dg_nm
         free (msg);
 
         if (rhint) {
-            parse_hint (rstart, rstep, devp->fd, &relpos, &flushcache);
+            parse_hint (rstart, rstep, devp, &flushcache);
             continue;
         }
 
@@ -1884,7 +1886,7 @@ int hashmatch ( const char *dg_nm
         /* Generate our own list of hashes */
         gen_hashes (dg_md, zh, (rstep == hashstep ? cs_state : NULL)
                    , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devp, rstart, rstep, rnstep
-                   , flushcache, relpos
+                   , flushcache
                    , async_block_write, &context);
 
         off_t         pos = rstart;
@@ -1924,7 +1926,7 @@ int hashmatch ( const char *dg_nm
                             if (tlen > blen) tlen = blen;
 
                             if (tlen > 0) {
-                                vpread (devp, fbuf, tlen, tpos, flushcache, relpos);
+                                vpread (devp, fbuf, tlen, tpos, flushcache);
                                 write_block (tpos, tlen, fbuf);
                             }
                         }
