@@ -137,24 +137,39 @@ The --verbose option results in verbose output. In Server mode the output will b
 Bdsync can be initiated like this in its most simple form:
 .PP
 .RS 
-\f(CWbdsync "bdsync -s" /dev/LOCDEV /dev/REMDEV > DEV.bdsync\fP
+\f(CWbdsync "bdsync -s" \fB/dev/LOCDEV /dev/REMDEV\fP > \fBDEV.bdsync\fP
 .RE
 .PP
-This generates a patchfile DEV.rsync of the /dev/LOCDEV and the /dev/REMDEV devices
-which both are local. A more realistic example is this:
+This generates a patchfile
+.ft B
+DEV.rsync
+.ft
+containing the blocks in the
+.ft B
+/dev/LOCDEV
+.ft
+device that differ from the blocks in the
+.ft B
+/dev/REMDEV
+.ft
+device which both are local. A more realistic example is this:
 .PP
 .RS 
-\f(CWbdsync "ssh doe@foo.org bdsync --server" /dev/LOCDEV /dev/REMDEV | gzip > DEV.bdsync.gz\fP
+\f(CWbdsync "ssh \fBdoe\fP@\fBremote\fP bdsync --server" \fB/dev/LOCDEV /dev/REMDEV\fP | gzip > \fBDEV.bdsync.gz\fP
 .RE
 .PP
-This bdsync client makes an ssh connection to foo.org as user doe and executes a
-bdsync client by passing it the --server option. The generated patchfile output is
-passed on to gzip which creates a compressed patchfile DEV.bdsync.gz.
+When run as \fBjohn\fP at \fBlocal\fP the bdsync client makes an ssh connection to
+\fBremote\fP as user \fBdoe\fP and executes a
+bdsync server by passing it the --server option. The generated patchfile output
+is passed on to gzip which creates a compressed patchfile \fBDEV.bdsync.gz\fP
+on local. The patchfile contains all blocks in \fB/dev/LOCDEV\fP at \fBlocal\fP
+that differ from \fB/dev/REMDEV\fP at \fBremote\fP.
+.ft
 .PP
-On the remote machine foo.org the user doe can apply the patch by executing:
+On the remote machine \fBremote\fP the user \fBdoe\fP can apply the patch by executing:
 .PP
 .RS 
-\f(CWgzip -d < DEV.bdsync.gz | bdsync --patch=/dev/DSTDEV\fP
+\f(CWgzip -d < \fBDEV.bdsync.gz\fP | bdsync --patch=\fB/dev/REMDEV\fP
 .RE
 .PP
 The reason to use a binary patch file instead of instantly patching the remote
