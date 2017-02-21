@@ -378,6 +378,9 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
         }
     }
 
+    //Use fadvise to release buffer/cache
+    posix_fadvise (devfd, pos, rlen, POSIX_FADV_DONTNEED);
+
     if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
 
     return ret;
