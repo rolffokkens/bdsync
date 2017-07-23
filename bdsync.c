@@ -119,28 +119,36 @@ typedef int (*async_handler)(struct context *, unsigned char, char *, size_t);
 
 extern int checkzero (void *p, int len);
 
+void show_usage (FILE *fp)
+{
+    static char *usage = 
+#   include "bdsync.txt.2"
+    ;
+    fprintf (fp, "%s", usage);
+}
+
 void set_blocking(int fd)
 {
-        int val;
+    int val;
 
-        if ((val = fcntl(fd, F_GETFL)) == -1)
-                return;
-        if (val & O_NONBLOCK) {
-                val &= ~O_NONBLOCK;
-                fcntl(fd, F_SETFL, val);
-        }
+    if ((val = fcntl(fd, F_GETFL)) == -1)
+            return;
+    if (val & O_NONBLOCK) {
+        val &= ~O_NONBLOCK;
+        fcntl(fd, F_SETFL, val);
+    }
 };
 
 void set_nonblocking(int fd)
 {
-        int val;
+    int val;
 
-        if ((val = fcntl(fd, F_GETFL)) == -1)
-                return;
-        if (!(val & O_NONBLOCK)) {
-                val |= O_NONBLOCK;
-                fcntl(fd, F_SETFL, val);
-        }
+    if ((val = fcntl(fd, F_GETFL)) == -1)
+            return;
+    if (!(val & O_NONBLOCK)) {
+        val |= O_NONBLOCK;
+        fcntl(fd, F_SETFL, val);
+    }
 };
 
 struct msg {
@@ -2338,6 +2346,7 @@ static struct option long_options[] = {
     , {"zeroblocks", no_argument,       0, 'z' }
     , {"warndev",    no_argument,       0, 'w' }
     , {"flushcache", no_argument,       0, 'F' }
+    , {"help",       no_argument,       0, 'H' }
     , {0,            0,                 0,  0  }
 };
 
@@ -2366,11 +2375,16 @@ int main (int argc, char *argv[])
     char  *checksum  = NULL;
     char  *cp;
 
+    if (argc == 1) {
+	show_usage (stdout);
+	return 0;
+    }
+
     for (;;) {
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd::zw"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd::zwFH"
                         , long_options, &option_index);
 
         if (c == -1) break;
@@ -2423,7 +2437,12 @@ int main (int argc, char *argv[])
         case 'F':
             flushcache = 1;
             break;
+        case 'H':
+            show_usage (stdout);
+	    return 0;
+            break;
         case '?':
+            show_usage (stderr);
             return exitcode_invalid_params;
         }
     }
