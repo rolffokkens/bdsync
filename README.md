@@ -21,6 +21,10 @@ This binary patchfile can be sent to the remote machine and applied to its
 block device REMDEV, after which the local blockdev LOCDEV and the remote block
 device REMDEV are synchronized.
 
+Both LOCDEV, REMDEV and DSTDEV can be true block devices, but may be (image)
+files as well. When using an image file for DSTDEV (the **--patch** mode),
+the **--diffsize** may be used to resize the image file when appropriate.
+
 bdsync was built to do the only thing rsync isn't able to do: synchronize block
 devices.
 
