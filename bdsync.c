@@ -1600,7 +1600,7 @@ void print_progress (struct context *ctx, int progress, off_t pos)
     if (progress && ctx) {
         int stat_pct = pos * 100 / ctx->stat_size;
         if (stat_pct != ctx->stat_pct) {
-            fprintf (stderr, "STAT:%03d%%,%lld\n", stat_pct, (long long) ctx->stat_diffttl);
+            fprintf (stderr, "PROGRESS:%03d%%,%lld\n", stat_pct, (long long) ctx->stat_diffttl);
             fflush (stderr);
             ctx->stat_pct = stat_pct;
         }
