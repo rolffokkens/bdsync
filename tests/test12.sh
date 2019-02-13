@@ -40,14 +40,14 @@ do_check ()
 
     ./bdsync --remdata "$SUBPROC 1" $LOCDEV $REMDEV > $BDSYNC1 2> $BDSERR1 && abort_msg "bdsync (1) failed"
     MD5ER1=`get_md5 $BDSERR1`
-    check_sum "Bad checksum MD5ER1" "$MD5ER1" "027d2b26252b982aa6195fa25d644ba4"
+    check_sum "Bad checksum MD5ER1" "$MD5ER1" "2780dbd9a376e11c660a8f98d53ba9e4"
 
     ./bdsync           "$SUBPROC 1" $REMDEV $LOCDEV > $BDSYNC2 2> $BDSERR2 && abort_msg "bdsync (2) failed"
     MD5ER2=`get_md5 $BDSERR2`
-    check_sum "Bad checksum MD5ER1" "$MD5ER2" "027d2b26252b982aa6195fa25d644ba4"
+    check_sum "Bad checksum MD5ER1" "$MD5ER2" "2780dbd9a376e11c660a8f98d53ba9e4"
 
     #
-    # bdsync file shoudl be about 1 4k block in size
+    # bdsync file should be about 1 4k block in size
     #
     check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
     check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000

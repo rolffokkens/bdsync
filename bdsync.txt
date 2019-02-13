@@ -21,4 +21,5 @@ OPTIONS:
 --diffsize[=OPTION]   Diff size handling: OPTION = strict, resize or minsize.
 --zeroblocks          Optimize for zero-filled blocks
 --flushcache          Actively flush OS buffer cache
+--progress            Report progress during operation
 --help                Show this help

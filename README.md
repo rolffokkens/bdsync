@@ -95,6 +95,10 @@ OS the data is no longer needed after reading it hence reducing OS buffer cache
 polution by bdsync. This works especially well when deltas are small, because
 in that case bdsync itself won't be reading blocks twice.
 
+**-P**, **--progress**
+:   This client option makes the client periodically report progress during
+operation.
+
 **-H**, **--help**
 :   Display brief help information.
 
