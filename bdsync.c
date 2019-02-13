@@ -52,6 +52,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -391,6 +392,36 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
     return ret;
 }
 
+int handle_err (int fd)
+{
+#   define EBUFSIZ 1024
+    static char rbuf[EBUFSIZ], ebuf[EBUFSIZ];
+    static char *ep = ebuf;
+    ssize_t sz;
+
+    while ((sz = read (fd, rbuf, EBUFSIZ)) > 0) {
+        char *rp = rbuf;
+        while (sz) {
+            if (*rp == '\n' || ep == ebuf + EBUFSIZ) {
+                fprintf (stderr, "RMTERR: ");
+                fwrite (ebuf, 1, ep - ebuf, stderr);
+                fprintf (stderr, "\n");
+                /* if (ep == ebuf + EBUFSIZ) ep = ebuf; */
+                ep = ebuf;
+            }
+            if (!isprint(*rp)) {
+                rp++;
+                sz--;
+                continue;
+            }
+            *ep++ = *rp++;
+            sz--;
+        }
+    }
+
+    return 0;
+}
+
 int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t len, unsigned char *buf)
 {
     if (!state) return 0;
@@ -441,12 +472,12 @@ int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t 
 
 int fd_pair(int fd[2])
 {
-        int ret;
+    int ret;
 
-        ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
-        // ret = pipe(fd);
+    ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+    // ret = pipe(fd);
 
-        return ret;
+    return ret;
 };
 
 
@@ -466,52 +497,61 @@ int init_salt (int saltsize, unsigned char *salt, int fixedsalt)
     return 0;
 };
 
-pid_t piped_child(char **command, int *f_in, int *f_out)
+pid_t piped_child(char **command, int *f_in, int *f_out, int *f_err)
 {
     pid_t pid;
-    int   to_child_pipe[2];
-    int   from_child_pipe[2];
+    int   child_stdin[2];
+    int   child_stdout[2];
+    int   child_stderr[2];
 
     verbose (2, "opening connection using: %s\n", command[0]);
 
-    if (fd_pair(to_child_pipe) < 0 || fd_pair(from_child_pipe) < 0) {
-            exitmsg (exitcode_process_error, "piped_child: %s\n", strerror (errno));
+    if (fd_pair(child_stdin) < 0 || fd_pair(child_stdout) < 0 || fd_pair(child_stderr) < 0) {
+        exitmsg (exitcode_process_error, "piped_child: %s\n", strerror (errno));
     }
 
     pid = fork();
     if (pid == -1) {
-            exitmsg (exitcode_process_error, "piped_child: fork: %s\n", strerror (errno));
+        exitmsg (exitcode_process_error, "piped_child: fork: %s\n", strerror (errno));
     }
 
     if (pid == 0) {
-        if (dup2(to_child_pipe[0], STDIN_FILENO) < 0 ||
-            close(to_child_pipe[1]) < 0 ||
-            close(from_child_pipe[0]) < 0 ||
-            dup2(from_child_pipe[1], STDOUT_FILENO) < 0) {
+        if (dup2(child_stdin[0],  STDIN_FILENO)  < 0 ||
+            dup2(child_stdout[1], STDOUT_FILENO) < 0 ||
+            dup2(child_stderr[1], STDERR_FILENO) < 0 ||
+            close(child_stdin[1])  < 0 ||
+            close(child_stdout[0]) < 0 ||
+            close(child_stderr[0]) < 0) {
             exitmsg (exitcode_process_error, "piped_child: dup2: %s\n", strerror (errno));
         }
-        if (to_child_pipe[0] != STDIN_FILENO)
-                close(to_child_pipe[0]);
-        if (from_child_pipe[1] != STDOUT_FILENO)
-                close(from_child_pipe[1]);
+        if (child_stdin[0] != STDIN_FILENO)
+                close(child_stdin[0]);
+        if (child_stdout[1] != STDOUT_FILENO)
+                close(child_stdout[1]);
+        if (child_stderr[1] != STDERR_FILENO)
+                close(child_stderr[1]);
             // umask(orig_umask);
         set_blocking(STDIN_FILENO);
         set_blocking(STDOUT_FILENO);
+        set_blocking(STDERR_FILENO);
         execvp(command[0], command);
         exitmsg (exitcode_process_error, "piped_child: execvp: %s\n", strerror (errno));
     }
 
-    if (close(from_child_pipe[1]) < 0 || close(to_child_pipe[0]) < 0) {
+    if (close(child_stdout[1]) < 0 || close(child_stderr[1]) < 0 || close(child_stdin[0]) < 0) {
         exitmsg (exitcode_process_error, "piped_child: close: %s\n", strerror (errno));
     }
 
-    *f_in = from_child_pipe[0];
-    *f_out = to_child_pipe[1];
+    set_nonblocking (child_stderr[0]);
+
+    *f_in  = child_stdout[0];
+    *f_out = child_stdin[1];
+    *f_err = child_stderr[0];
 
     return pid;
 };
 
-pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue)
+pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pwr_queue, int *fd_err)
 {
     int   argc = 0;
     char  *t, *f, *args[ARGMAX];
@@ -554,7 +594,7 @@ pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pw
     }
     args[argc] = NULL;
 
-    pid = piped_child (args, &f_in, &f_out);
+    pid = piped_child (args, &f_in, &f_out, fd_err);
 
     free (command);
 
@@ -840,9 +880,9 @@ int fill_rd_queue (struct rd_queue *pqueue, async_handler handler, struct contex
 
 struct timeval get_rd_wait = {0, 0};
 
-int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsigned char *token, char **msg, size_t *msglen, async_handler handler, struct context *context)
+int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, int fd_err, unsigned char *token, char **msg, size_t *msglen, async_handler handler, struct context *context)
 {
-    struct pollfd  pfd[2];
+    struct pollfd  pfd[3];
     struct msg     *phd;
     int            tmp, nfd;
     struct timeval tv1, tv2;
@@ -860,6 +900,9 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
 
         pfd[1].fd     = pwr_queue->wr_fd;
         pfd[1].events = (pwr_queue->phd ? POLLOUT: 0);
+
+        pfd[2].fd     = fd_err;
+        pfd[2].events = POLLIN;
 
         nfd = (pwr_queue->state == qeof ? 1 : 2);
         tmp = poll (pfd, nfd, -1);
@@ -885,6 +928,7 @@ int get_rd_queue (struct wr_queue *pwr_queue, struct rd_queue *prd_queue, unsign
                 }
             }
         }
+        if (pfd[2].revents & POLLIN) handle_err (fd_err);
     }
 
     gettimeofday (&tv2, NULL);
@@ -1556,12 +1600,14 @@ int gen_hashes ( hash_alg md
                , unsigned char **retbuf, size_t *retsiz
                , struct dev *devp
                , off_t start, off_t step, int nstep
-               , async_handler handler, struct context *context)
+               , async_handler handler, struct context *context
+               , off_t printstat)
 {
     unsigned char *buf, *fbuf;
     off_t         nrd;
     int           hashsize = hash_getsize (md);
     hash_ctx      dg_ctx;
+    off_t         prv_stat_pct = 0;
 
     *retsiz = nstep * hashsize;
     buf     = malloc (nstep * hashsize);
@@ -1575,6 +1621,15 @@ int gen_hashes ( hash_alg md
     while (nstep) {
         flush_wr_queue (pwr_queue, 0);
         fill_rd_queue (prd_queue, handler, context);
+
+if (printstat) {
+    off_t stat_pct = start * 100 / printstat;
+    if (stat_pct != prv_stat_pct) {
+        fprintf (stderr, "STAT: %lld\n", (long long) stat_pct);
+        fflush (stderr);
+        prv_stat_pct = stat_pct;
+    }
+}
 
         nrd = vpread (devp, fbuf, step, start);
 
@@ -1665,7 +1720,7 @@ enum exitcode do_server (int zeroblocks)
 
     while (goon) {
         flush_wr_queue (&wr_queue, 0);
-        get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
+        get_rd_queue (&wr_queue, &rd_queue, -1, &token, &msg, &msglen, NULL, NULL);
 
         if (exp) {
             if (token != exp) exit (exitcode_protocol_error);
@@ -1696,7 +1751,7 @@ enum exitcode do_server (int zeroblocks)
                 len = 0;
             } else {
                 zh = (zeroblocks ? find_zero_hash (dg_nm, step, saltsize, salt) : NULL);
-                gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, NULL, NULL);
+                gen_hashes (dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, NULL, NULL, 0);
             }
             /* this also covers send_hint: */
             send_hashes (&wr_queue, start, step, nstep, buf, len);
@@ -1825,6 +1880,7 @@ int hashmatch ( const char *dg_nm
               , int saltsize, unsigned char *salt
               , struct dev *devp, off_t rdevsize
               , struct rd_queue *prd_queue, struct wr_queue *pwr_queue
+              , int fd_err
               , off_t hashstart, off_t hashend, off_t hashstep, off_t nextstep
               , int maxsteps
               , int *hashreqs
@@ -1880,7 +1936,7 @@ int hashmatch ( const char *dg_nm
         /* while we expect msg_hashes or msg_block try to get them ... */
         while (*hashreqs || *blockreqs) {
             /* handle msg_block in async_block_write */
-            get_rd_queue (pwr_queue, prd_queue, &token, &msg, &msglen, async_block_write, &context);
+            get_rd_queue (pwr_queue, prd_queue, fd_err, &token, &msg, &msglen, async_block_write, &context);
 
             /* when msg_block is handled get_rd_queue may return msg_none */
             if (token != msg_none) break;
@@ -1904,7 +1960,7 @@ int hashmatch ( const char *dg_nm
         /* Generate our own list of hashes */
         gen_hashes (dg_md, zh, (rstep == hashstep ? cs_state : NULL)
                    , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devp, rstart, rstep, rnstep
-                   , async_block_write, &context);
+                   , async_block_write, &context, (recurs ? 0 : hashend));
 
         off_t         pos = rstart;
         unsigned char *lp = lhbuf, *rp = rhbuf;
@@ -1956,7 +2012,7 @@ int hashmatch ( const char *dg_nm
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
                     int tnstep = rstep / nextstep;
                     if (tnstep > MAXHASHES (hashsize)) tnstep = MAXHASHES (hashsize);
-                    hashmatch (dg_nm, dg_md, NULL, remdata, saltsize, salt, devp, rdevsize, prd_queue, pwr_queue, pos, tend, nextstep, nextstep, tnstep, hashreqs, blockreqs, recurs + 1, zeroblocks);
+                    hashmatch (dg_nm, dg_md, NULL, remdata, saltsize, salt, devp, rdevsize, prd_queue, pwr_queue, fd_err, pos, tend, nextstep, nextstep, tnstep, hashreqs, blockreqs, recurs + 1, zeroblocks);
                 }
             }
             lp  += hashsize;
@@ -1988,6 +2044,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     unsigned short  devlen;
     struct          wr_queue wr_queue;
     struct          rd_queue rd_queue;
+    int             fd_err;
     int             hashsize, status;
     hash_alg        dg_md;
     struct cs_state *cs_state;
@@ -2012,20 +2069,20 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     devp = opendev (ldev, O_RDONLY, flushcache);
 
-    pid = do_command (command, &rd_queue, &wr_queue);
+    pid = do_command (command, &rd_queue, &wr_queue, &fd_err);
 
     send_hello (&wr_queue, "CLIENT");
 
     char *hello   = NULL;
 
-    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
+    get_rd_queue (&wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_hello);
     parse_hello (msg, msglen, &hello);
     send_devfile (&wr_queue, rdev);
     free (msg);
     free (hello);
 
-    get_rd_queue (&wr_queue, &rd_queue, &token, &msg, &msglen, NULL, NULL);
+    get_rd_queue (&wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_size);
     parse_size (msg, msglen, &rdevsize);
     free (msg);
@@ -2063,7 +2120,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     int hashreqs = 0, blockreqs = 0;
 
-    hashmatch (digest, dg_md, cs_state, remdata, sizeof (salt), salt, devp, rdevsize, &rd_queue, &wr_queue, 0, mdevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, &blockreqs, 0, zeroblocks);
+    hashmatch (digest, dg_md, cs_state, remdata, sizeof (salt), salt, devp, rdevsize, &rd_queue, &wr_queue, fd_err, 0, mdevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, &blockreqs, 0, zeroblocks);
 
     // finish the bdsync archive
     {
@@ -2081,7 +2138,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
         if (remdata) {
             send_getchecksum (&wr_queue);
-            get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen, NULL, NULL);
+            get_rd_queue (&wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL, NULL);
             check_token ("", token, msg_checksum);
             parse_checksum (msg, msglen, &clen, &cbuf);
             free (msg);
@@ -2113,7 +2170,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     verbose (2, "do_client: get_rd_wait = %d.%06d\n", get_rd_wait.tv_sec, get_rd_wait.tv_usec);
 
     send_done (&wr_queue);
-    get_rd_queue (&wr_queue, &rd_queue,  &token, &msg, &msglen, NULL, NULL);
+    get_rd_queue (&wr_queue, &rd_queue,  fd_err, &token, &msg, &msglen, NULL, NULL);
     check_token ("", token, msg_done);
     parse_done (msg, msglen);
     free (msg);
@@ -2122,6 +2179,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     cleanup_rd_queue (&rd_queue);
     cleanup_wr_queue (&wr_queue);
+    handle_err (fd_err);
 
     dump_mallinfo ();
 

@@ -55,11 +55,9 @@ handle_check ()
 
     echo "**** Checking: $2"
     ( is_md5sum_available
-      eval "$1" "$TDIR/check" ) > $TMP2 2>&1
+      eval "$1" "$TDIR/check" ) 2>&1 | tee $TMP2 | sed -u 's/^/  |  /'
 
-    RET="$?"
-
-    [ -s $TMP2 ] && sed 's/^/  |  /' $TMP2
+    RET="${PIPESTATUS[0]}"
 
     if [ "$RET" == "0" ]
     then
