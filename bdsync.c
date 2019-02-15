@@ -52,6 +52,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -113,11 +114,20 @@ enum diffsize {
 };
 
 struct context {
-    int   blockreqs;
-    off_t stat_size;
-    int   stat_pct;
-    off_t stat_diffttl;
+    int            blockreqs;
+    off_t          stat_size;
+    int            stat_pct;
+    off_t          stat_diffttl;
+    struct timeval start_tv;
+    struct timeval progr_tv;
 };
+
+struct timeval wall_time;
+
+void update_time ()
+{
+    gettimeofday (&wall_time, NULL);
+}
 
 typedef int (*async_handler)(struct context *, unsigned char, char *, size_t);
 
@@ -893,7 +903,8 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
     verbose (3, "get_rd_queue: handler = %d\n", (handler != NULL));
 
-    gettimeofday (&tv1, NULL);
+    update_time ();
+    tv1 = wall_time;
 
     while (    prd_queue->state != qeof
            && !async_cnt
@@ -934,7 +945,8 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
         if (pfd[2].revents & POLLIN) handle_err (fd_err);
     }
 
-    gettimeofday (&tv2, NULL);
+    update_time ();
+    tv2 = wall_time;
 
     tv2.tv_sec  -= tv1.tv_sec;
     tv2.tv_usec -= tv1.tv_usec;
@@ -1597,11 +1609,30 @@ int flush_checksum (struct cs_state **state, size_t *len, unsigned char **buf)
 
 void print_progress (struct context *ctx, int progress, off_t pos)
 {
+    uint64_t dt;
+    int      rt;
+
     if (progress && ctx) {
         int stat_pct = pos * 100 / ctx->stat_size;
-        if (stat_pct != ctx->stat_pct) {
-            fprintf (stderr, "PROGRESS:%03d%%,%lld\n", stat_pct, (long long) ctx->stat_diffttl);
+
+        if (stat_pct != ctx->stat_pct || ctx->progr_tv.tv_sec != wall_time.tv_sec) {
+            dt = (wall_time.tv_sec - ctx->start_tv.tv_sec) * 1000000 + (wall_time.tv_usec - ctx->start_tv.tv_usec);
+            ctx->progr_tv = wall_time;
+            rt = pos * 1000 / dt;
+
+            fprintf (stderr, "PROGRESS:%03d%%,%lld,", stat_pct, (long long) ctx->stat_diffttl);
+            if (rt) {
+                long long tdt, cdt;
+
+                tdt = ctx->stat_size / rt;
+                cdt = dt / 1000;
+                fprintf (stderr, "%lld.%03lld,",  cdt / 1000,         cdt % 1000         );
+                fprintf (stderr, "%lld.%03lld\n", (tdt - cdt) / 1000, (tdt - cdt ) % 1000);
+            } else {
+                fprintf (stderr, "-,-\n");
+            }
             fflush (stderr);
+
             ctx->stat_pct = stat_pct;
         }
     }
@@ -2063,6 +2094,8 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     struct context  ctx = { 0, 0, 0, 0 };
     char            *tdev;
 
+    ctx.start_tv = wall_time;
+
     dg_md = hash_getbyname (digest);
     if (!dg_md) {
         fprintf (stderr, "Bad hash %s\n", digest);
@@ -2454,6 +2487,8 @@ int main (int argc, char *argv[])
     char  *hash      = NULL;
     char  *checksum  = NULL;
     char  *cp;
+
+    update_time ();
 
     if (argc == 1) {
 	show_usage (stdout);

@@ -96,8 +96,14 @@ polution by bdsync. This works especially well when deltas are small, because
 in that case bdsync itself won't be reading blocks twice.
 
 **-P**, **--progress**
-:   This client option makes the client periodically report progress during
-operation.
+:   This client option makes the client periodically report progress to stderr during
+operation. The format is:
+
+    `PROGRESS:`**\<pct\>**`%,`**\<diffsize\>**`,`**\<elapsed s\>**`,`**\<remaining s\>**
+
+    Where: **\<pct\>** is progress in %, **\<diffsize\>** is the current size of the
+generated diff, **\<elapsed s\>** is the elapsed time in seconds and 
+**\<remaining s\>** is an estimate of the remaining time left in seconds.
 
 **-H**, **--help**
 :   Display brief help information.
