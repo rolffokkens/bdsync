@@ -76,12 +76,12 @@ are accepted and the LOCDEV size is applied to REMDEV in patch mode which is
 only supported for (image) files (not devices). When minsize is specified, the
 smallest size of both LOCDEV and REMDEV is considered (excess data is ignored).
 
-    When the **--diffsize** command line option is not specified at all, it
+>   When the **--diffsize** command line option is not specified at all, it
 defaults to **--diffsize=strict**. When the **--diffsize** is specified
 without any of the additional options, it defaults to **--diffsize=resize**
 which is consistent with earlier versions of bdsync.
 
-    When the additional **warn** option is specified, a warning is issued when
+>   When the additional **warn** option is specified, a warning is issued when
 sizes differ.
 
 **-z**, **--zeroblocks**
@@ -99,9 +99,9 @@ in that case bdsync itself won't be reading blocks twice.
 :   This client option makes the client periodically report progress to stderr during
 operation. The format is:
 
-    `PROGRESS:`**\<pct\>**`%,`**\<diffsize\>**`,`**\<elapsed s\>**`,`**\<remaining s\>**
+>   `PROGRESS:`**\<pct\>**`%,`**\<diffsize\>**`,`**\<elapsed s\>**`,`**\<remaining s\>**
 
-    Where: **\<pct\>** is progress in %, **\<diffsize\>** is the current size of the
+>   Where: **\<pct\>** is progress in %, **\<diffsize\>** is the current size of the
 generated diff, **\<elapsed s\>** is the elapsed time in seconds and 
 **\<remaining s\>** is an estimate of the remaining time left in seconds.
 
@@ -123,7 +123,7 @@ level.
 
 Bdsync can be initiated like this in its most simple form:
 
-> bdsync "bdsync -s" **/dev/LOCDEV** **/dev/REMDEV** > **DEV.bdsync**
+> bdsync "bdsync -s" **`/dev/LOCDEV`****`/dev/REMDEV`** > **DEV.bdsync**
 
 This generates a patchfile **DEV.rsync** containing the blocks in the
 **/dev/LOCDEV** device that differ from the blocks in the **/dev/REMDEV**
