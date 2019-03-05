@@ -99,10 +99,11 @@ in that case bdsync itself won't be reading blocks twice.
 :   This client option makes the client periodically report progress to stderr during
 operation. The format is:
 
->   `PROGRESS:`**\<pct\>**`%,`**\<diffsize\>**`,`**\<elapsed s\>**`,`**\<remaining s\>**
+>   `PROGRESS:`**\<pct\>**`%,`**\<diffsize\>**`,`**\<pos\>**`,`**\<size\>**`,`**\<elapsed s\>**`,`**\<remaining s\>**
 
 >   Where: **\<pct\>** is progress in %, **\<diffsize\>** is the current size of the
-generated diff, **\<elapsed s\>** is the elapsed time in seconds and 
+generated diff, **\<pos\>** is the current position reading LOCDEV, **\<size\>** is the
+total size of LOCDEV, **\<elapsed s\>** is the elapsed time in seconds and 
 **\<remaining s\>** is an estimate of the remaining time left in seconds.
 
 **-H**, **--help**

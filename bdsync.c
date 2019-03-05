@@ -1620,7 +1620,7 @@ void print_progress (struct context *ctx, int progress, off_t pos)
             ctx->progr_tv = wall_time;
             rt = pos * 1000 / dt;
 
-            fprintf (stderr, "PROGRESS:%03d%%,%lld,", stat_pct, (long long) ctx->stat_diffttl);
+            fprintf (stderr, "PROGRESS:%03d%%,%lld,%lld,%lld,", stat_pct, (long long) ctx->stat_diffttl, (long long) pos, (long long) ctx->stat_size);
             if (rt) {
                 long long tdt, cdt;
 
