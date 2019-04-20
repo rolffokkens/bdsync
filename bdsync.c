@@ -2298,7 +2298,11 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             break;
         case ds_resize:
             if (ftruncate (devp->fd, ndevsize) != 0) {
-                verbose (0, "Cannot resize device=%s\n", devname);
+                verbose (0, "Cannot resize (ftruncate) device=%s\n", devname);
+                exit (exitcode_diffsize_mismatch);
+            }
+            if (posix_fallocate (devp->fd, 0, ndevsize) != 0) {
+                verbose (0, "Cannot resize (posix_fallocate) device=%s\n", devname);
                 exit (exitcode_diffsize_mismatch);
             }
             devp->size = ndevsize;
