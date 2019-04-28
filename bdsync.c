@@ -976,6 +976,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
             return 0;
         }
         verbose (0, "get_rd_queue: EOF %d\n", pfd[1].fd);
+        handle_err (fd_err);
         exit (exitcode_read_error);
     }
 

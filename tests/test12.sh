@@ -4,14 +4,6 @@ DIR=`dirname "$0"`
 
 . $DIR/testlib.sh
 
-ref_md5sum ()
-{
-get_md5 << EOF
-BEFORE
-AFTER
-EOF
-}
-
 do_check ()
 {
     local TDIR="$1"
@@ -24,7 +16,7 @@ do_check ()
     local BDSERR1="$TDIR/err.bdsync1"
     local BDSERR2="$TDIR/err.bdsync2"
 
-    local SUBPROC="$DIR/supp12-1.sh"
+    local SUBPROC="$DIR/subp12-1.sh"
 
     cre_sparse_file $LOCDEV 1234567
     cre_sparse_file $REMDEV 1234567
