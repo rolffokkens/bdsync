@@ -9,7 +9,7 @@ sudo apt install build-essential checkinstall wget
 # install specific libraries that bdsync needs
 sudo apt install libssl-dev pandoc 
 # download and unzip bdsync
-wget https://github.com/Slimmer-AI/bdsync/archive/master.zip
+wget https://github.com/rolffokkens/bdsync/archive/master.zip
 unzip bdsync.zip
 # compile bdsync
 cd bdsync-master/
@@ -22,7 +22,7 @@ CentOS/RedHat/Fedora
 # install utilities for building software (and wget)
 sudo yum install openssl-devel gcc pandoc wget
 # download and unzip bdsync
-wget https://github.com/Slimmer-AI/bdsync/archive/master.zip
+wget https://github.com/rolffokkens/bdsync/archive/master.zip
 unzip bdsync.zip
 # compile bdsync
 cd bdsync-master/
