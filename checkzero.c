@@ -14,7 +14,7 @@ int checkzero(void *p, int len)
         "xorb %%al, %%al\n"
         "repz scasb\n"
         : "=c" (is_zero)
-        : "c" (len), "D" (p)
+        : "c" (len), "D" (p), "m" (*(const char (*)[]) p)
         : "eax", "cc"
     );
     return !is_zero;
