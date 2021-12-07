@@ -126,7 +126,7 @@ Bdsync can be initiated like this in its most simple form:
 
 > bdsync "bdsync -s" **`/dev/LOCDEV`****`/dev/REMDEV`** > **DEV.bdsync**
 
-This generates a patchfile **DEV.rsync** containing the blocks in the
+This generates a patchfile **DEV.bdsync** containing the blocks in the
 **/dev/LOCDEV** device that differ from the blocks in the **/dev/REMDEV**
 device which both are local. A more realistic example is this:
 

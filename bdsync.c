@@ -71,6 +71,7 @@
 #ifdef DBG_MTRACE
 # include <mcheck.h>
 #endif
+#include <features.h>
 #include <malloc.h>
 
 #define RDAHEAD (1024*1024)
@@ -257,14 +258,21 @@ void exitmsg (enum exitcode code, char * format, ...)
     exit (code);
 };
 
+#if defined(__GLIBC__) && ((__GLIBC__ > 2) || ((__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 33)))
+#define BD_mallinfo mallinfo2
+#else
+#define BD_mallinfo mallinfo
+#endif
+
 void dump_mallinfo (void)
 {
-    struct mallinfo mi;
+    struct BD_mallinfo mi;
 
-    mi = mallinfo ();
+    mi = BD_mallinfo ();
 
-    verbose (3, "dump_mallinfo: arena=%d, ordblks=%d, smblks=%d, hblks=%d, hblkhd=%d, usmblks=%d, fsmblks=%d, uordblks=%d, fordblks=%d, keepcost=%d\n"
-              , mi.arena, mi.ordblks, mi.smblks, mi.hblks, mi.hblkhd, mi.usmblks, mi.fsmblks, mi.uordblks, mi.fordblks, mi.keepcost);
+    verbose (3, "dump_mallinfo: arena=%lld, ordblks=%lld, smblks=%lld, hblks=%lld, hblkhd=%lld, usmblks=%lld, fsmblks=%lld, uordblks=%lld, fordblks=%lld, keepcost=%lld\n"
+              , (long long)mi.arena,   (long long)mi.ordblks, (long long)mi.smblks,   (long long)mi.hblks,    (long long)mi.hblkhd
+	      , (long long)mi.usmblks, (long long)mi.fsmblks, (long long)mi.uordblks, (long long)mi.fordblks, (long long)mi.keepcost);
 };
 
 void cleanup_wr_queue (struct wr_queue *pqueue)
@@ -422,7 +430,7 @@ int handle_err (int fd)
                 /* if (ep == ebuf + EBUFSIZ) ep = ebuf; */
                 ep = ebuf;
             }
-            if (!isprint(*rp)) {
+            if (!isprint((int) *rp)) {
                 rp++;
                 sz--;
                 continue;
@@ -1711,7 +1719,11 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     int        fd;
     struct dev *devp;
 
+#ifdef O_LARGEFILE
     fd = open (dev, flags | O_LARGEFILE);
+#else
+    fd = open (dev, flags);
+#endif
     if (fd == -1) {
         verbose (0, "opendev [%s]: %s\n", dev, strerror (errno));
         exit (exitcode_io_error);
