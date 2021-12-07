@@ -10,7 +10,7 @@ sudo apt install build-essential checkinstall wget
 sudo apt install libssl-dev pandoc 
 # download and unzip bdsync
 wget https://github.com/rolffokkens/bdsync/archive/master.zip
-unzip bdsync.zip
+unzip master.zip
 # compile bdsync
 cd bdsync-master/
 make
@@ -23,8 +23,48 @@ CentOS/RedHat/Fedora
 sudo yum install openssl-devel gcc pandoc wget
 # download and unzip bdsync
 wget https://github.com/rolffokkens/bdsync/archive/master.zip
-unzip bdsync.zip
+unzip master.zip
 # compile bdsync
 cd bdsync-master/
 make
 # done -- you'll find bdsync in current path
+
+Windows (using cygwin)
+======================
+
+# install cygwin for Windows
+https://cygwin.com/install.html
+# Select packages gcc-g++, make, openssl-devel, wget, unzip on the 'Select Packages' screen
+# Install Pandoc
+https://pandoc.org/installing.html
+# Add pandoc to the path
+echo 'export PATH="$PATH:/cygdrive/c/program files/pandoc"' > /etc/profile.d/pandoc.sh
+source /etc/profile.d/pandoc.sh
+# download and unzip bdsync
+wget https://github.com/rolffokkens/bdsync/archive/master.zip
+unzip master.zip
+# compile bdsync
+cd bdsync-master/
+make
+# done -- you'll find bdsync in current path
+
+Setting up for Windows (using cygwin)
+=====================================
+
+# Setting up SSH on Windows machines:
+# Re-run setup-x86_64.exe of cygwin
+# Install package openssh
+# Run Cygwin terminal as administrator, run command
+ssh-host-config
+# To allow sshd in the firewall, execute the following in PowerShell as administrator:
+New-NetFirewallRule -Name sshd -DisplayName 'CYGWIN sshd' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Program "C:\apps\cygwin64\usr\sbin\sshd.exe"
+# Start the SSHD service in Cygwin terminal
+net start cygsshd
+# If key authenication is required, generate a new private / public pair using ssh-keygen
+# Public key should be placed in ~/.ssh/authorized_keys on the server
+# Private key should be defined in ~/.ssh/config on the client:
+Host <remotehost>
+  IdentityFile c:/path/<yourprivatekey>
+# The permissions on the private key should be restricted (unless StrictModes in sshd is off):
+# Properties / Security / Advanced / Disable Inheritance. Make sure only two users remain listed: SYSTEM and your Windows username
+# To debug connections, enable logging for SSH: install syslog-ng and update SysLogFacility / LogLevel in /etc/sshd_config
