@@ -422,7 +422,7 @@ int handle_err (int fd)
                 /* if (ep == ebuf + EBUFSIZ) ep = ebuf; */
                 ep = ebuf;
             }
-            if (!isprint(*rp)) {
+            if (!isprint((int) *rp)) {
                 rp++;
                 sz--;
                 continue;
@@ -1711,7 +1711,11 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     int        fd;
     struct dev *devp;
 
+#ifdef O_LARGEFILE
     fd = open (dev, flags | O_LARGEFILE);
+#else
+    fd = open (dev, flags);
+#endif
     if (fd == -1) {
         verbose (0, "opendev [%s]: %s\n", dev, strerror (errno));
         exit (exitcode_io_error);
