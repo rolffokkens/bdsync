@@ -11,6 +11,7 @@ do_check ()
 
     local TDIR="$1"
     local TMPF="$TDIR/t1"
+    local RASIZE=$((1024*1024))
 
     local LOCDEV="$TDIR/LOCDEV"
     local REMDEV="$TDIR/REMDEV"
@@ -19,24 +20,24 @@ do_check ()
     local BDSYNC3="$TDIR/DEV.bdsync3"
     local BDSYNC4="$TDIR/DEV.bdsync4"
 
-    cre_random_file_1k $LOCDEV $((1*1024))
-    cre_random_file_1k $REMDEV $((2*1024))
+    cre_random_file_1k $LOCDEV $((16*1024))
+    cre_random_file_1k $REMDEV $((32*1024))
 
     MD5LOC1=`get_md5 $LOCDEV`
     MD5REM1=`get_md5 $REMDEV`
 
-    ./bdsync           --diffsize=resize "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
-    ./bdsync --remdata --diffsize        "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
-    ./bdsync           --diffsize=resize "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC3 || abort_msg "bdsync (3) failed"
-    ./bdsync --remdata --diffsize        "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC4 || abort_msg "bdsync (4) failed"
+    ./bdsync           --diffsize=resize --readahead $RASIZE "./bdsync -s --readahead $RASIZE" $LOCDEV $REMDEV > $BDSYNC1 || abort_msg "bdsync (1) failed"
+    ./bdsync --remdata --diffsize        --readahead $RASIZE "./bdsync -s --readahead $RASIZE" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
+    ./bdsync           --diffsize=resize --readahead $RASIZE "./bdsync -s --readahead $RASIZE" $REMDEV $LOCDEV > $BDSYNC3 || abort_msg "bdsync (3) failed"
+    ./bdsync --remdata --diffsize        --readahead $RASIZE "./bdsync -s --readahead $RASIZE" $LOCDEV $REMDEV > $BDSYNC4 || abort_msg "bdsync (4) failed"
 
     #
     # bdsync file shoudl be about 1 4k block in size
     #
-    check_sizemax "file BDSYNC1 too large" $BDSYNC1 1100000
-    check_sizemax "file BDSYNC2 too large" $BDSYNC2 1100000
-    check_sizemax "file BDSYNC3 too large" $BDSYNC3 2200000
-    check_sizemax "file BDSYNC4 too large" $BDSYNC4 2200000
+    check_sizemax "file BDSYNC1 too large" $BDSYNC1 17600000
+    check_sizemax "file BDSYNC2 too large" $BDSYNC2 17600000
+    check_sizemax "file BDSYNC3 too large" $BDSYNC3 35200000
+    check_sizemax "file BDSYNC4 too large" $BDSYNC4 35200000
 
     MD5BD1=`get_md5 $BDSYNC1`
     MD5BD2=`get_md5 $BDSYNC2`
@@ -56,4 +57,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5LOC1"
 }
 
-handle_check "$1" do_check "Handling different size (random) files with --diffsize=resize option"
+handle_check "$1" do_check "Handling different size (random) files with --diffsize=resize and --readahead option"

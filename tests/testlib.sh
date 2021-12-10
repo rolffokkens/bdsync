@@ -47,28 +47,37 @@ check_sizemax ()
 
 handle_check ()
 {
-    local TDIR=`mktemp -d /tmp/handle_check-XXXXXX`
-    local TMP2="$TDIR/check-output.lis"
+    local _tdir="$1"
+    local _test="$2"
+    local _desc="$3"
+    local _tmp2
 
+    if [[ ${_tdir} == "" ]]
+    then
+        _tdir=$(mktemp -d /tmp/handle_check-XXXXXX)
+    else
+        mkdir -p "${_tdir}"
+    fi
 
-    mkdir "$TDIR/check"
+    mkdir "${_tdir}/check"
+    _tmp2="${_tdir}/check-output.lis"
 
-    echo "**** Checking: $2"
+    echo "**** Checking: ${_desc}"
     ( is_md5sum_available
-      eval "$1" "$TDIR/check" ) 2>&1 | tee $TMP2 | sed -u 's/^/  |  /'
+      eval "${_test}" "${_tdir}/check" ) 2>&1 | tee "${_tmp2}" | sed -u 's/^/  |  /'
 
-    RET="${PIPESTATUS[0]}"
+    _ret="${PIPESTATUS[0]}"
 
-    if [ "$RET" == "0" ]
+    if [[ ${_ret} == "0" ]]
     then
         echo "--> PASS"
     else
         echo "--> FAIL"
     fi
 
-    rm -rf $TDIR
+    rm -rf "${_tdir}"
 
-    return $RET
+    return "${_ret}"
 }
 
 cre_sparse_file ()

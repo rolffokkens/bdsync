@@ -74,8 +74,6 @@
 #include <features.h>
 #include <malloc.h>
 
-#define RDAHEAD (1024*1024)
-
 /* max total queuing write data */
 #define MAXWRQUEUE 131072
 
@@ -382,6 +380,9 @@ struct dev {
     off_t size;
     off_t relpos; /* data released from cache until pos     */
     int   flush;  /* flush each block from the buffer cache */
+    off_t ra_start;
+    off_t ra_len;
+    pid_t ra_pid;
 };
 
 int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
@@ -1647,6 +1648,41 @@ void print_progress (struct context *ctx, int progress, off_t pos)
     }
 }
 
+void async_readahead (struct dev *devp, off_t start, off_t len)
+{
+    pid_t pid;
+    int wstatus;
+
+    if (!len) return;
+
+    if (devp->ra_pid) {
+        /* if child has not exited, do nothing */
+        if (!(pid = waitpid (devp->ra_pid, &wstatus, WNOHANG))) return;
+        if (pid == -1) {
+            verbose (0, "async_readahead: %s %d\n", strerror (errno), devp->ra_pid);
+            exit (exitcode_io_error);
+        }
+	devp->ra_pid = 0;
+    }
+    /* if start in first half of previous readahead, bail out */
+    if (start < devp->ra_start + (devp->ra_len / 2)) return;
+
+    verbose (3, "async_readahead: hash: pos=%lld, len=%lld\n"
+                    , (long long) start, (long long) len);
+
+    devp->ra_start = start;
+    devp->ra_len   = len;
+    devp->ra_pid   = 0;
+
+    fflush (NULL);
+    devp->ra_pid = fork ();
+    if (devp->ra_pid) return;
+
+    posix_fadvise64 (devp->fd, start, len, POSIX_FADV_WILLNEED);
+
+    exit (0);
+}
+
 int gen_hashes ( struct context *ctx
                , hash_alg md
                , struct zero_hash *zh
@@ -1657,6 +1693,7 @@ int gen_hashes ( struct context *ctx
                , struct dev *devp
                , off_t start, off_t step, int nstep
                , async_handler handler
+               , int readahead
                , int progress)
 {
     unsigned char *buf, *fbuf;
@@ -1680,6 +1717,8 @@ int gen_hashes ( struct context *ctx
         print_progress (ctx, progress, start);
 
         nrd = vpread (devp, fbuf, step, start);
+
+        if (readahead) async_readahead (devp, start, readahead);
 
 /* Kills performance; really slow syscall:
         posix_fadvise64 (fd, start + step, RDAHEAD, POSIX_FADV_WILLNEED);
@@ -1730,17 +1769,20 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     }
     devp = (struct dev *) malloc (sizeof (struct dev));
     
-    devp->fd     = fd;
-    devp->size   = lseek (fd, 0, SEEK_END);
-    devp->relpos = 0;
-    devp->flush  = flushcache;
+    devp->fd       = fd;
+    devp->size     = lseek (fd, 0, SEEK_END);
+    devp->relpos   = 0;
+    devp->flush    = flushcache;
+    devp->ra_start = 0;
+    devp->ra_len   = 0;
+    devp->ra_pid   = 0;
 
     verbose (1, "opendev: opened %s\n", dev);
 
     return devp;
 };
 
-enum exitcode do_server (int zeroblocks)
+enum exitcode do_server (int zeroblocks, int readahead)
 {
     char             *msg;
     size_t           msglen;
@@ -1804,7 +1846,7 @@ enum exitcode do_server (int zeroblocks)
                 len = 0;
             } else {
                 zh = (zeroblocks ? find_zero_hash (dg_nm, step, saltsize, salt) : NULL);
-                gen_hashes (NULL, dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, NULL, 0);
+                gen_hashes (NULL, dg_md, zh, cs_state, &rd_queue, &wr_queue, saltsize, salt, &buf, &len, devp, start, step, nstep, NULL, readahead, 0);
             }
             /* this also covers send_hint: */
             send_hashes (&wr_queue, start, step, nstep, buf, len);
@@ -1942,6 +1984,7 @@ int hashmatch ( struct context *ctx
               , int *hashreqs
               , int recurs
               , int zeroblocks
+              , int readahead
               , int progress)
 {
     int              hashsteps;
@@ -2013,7 +2056,7 @@ int hashmatch ( struct context *ctx
         /* Generate our own list of hashes */
         gen_hashes ( ctx, dg_md, zh, (rstep == hashstep ? cs_state : NULL)
                    , prd_queue, pwr_queue, saltsize, salt, &lhbuf, &lhsize, devp, rstart, rstep, rnstep
-                   , async_block_write, (recurs ? 0 : progress));
+                   , async_block_write, readahead, (recurs ? 0 : progress));
 
         off_t         pos = rstart;
         unsigned char *lp = lhbuf, *rp = rhbuf;
@@ -2065,7 +2108,7 @@ int hashmatch ( struct context *ctx
                     /* Not HSMALL? Then zoom in on the details (HSMALL) */
                     int tnstep = rstep / nextstep;
                     if (tnstep > MAXHASHES (hashsize)) tnstep = MAXHASHES (hashsize);
-                    hashmatch (ctx, dg_nm, dg_md, NULL, remdata, saltsize, salt, devp, rdevsize, prd_queue, pwr_queue, fd_err, pos, tend, nextstep, nextstep, tnstep, hashreqs, recurs + 1, zeroblocks, 0);
+                    hashmatch (ctx, dg_nm, dg_md, NULL, remdata, saltsize, salt, devp, rdevsize, prd_queue, pwr_queue, fd_err, pos, tend, nextstep, nextstep, tnstep, hashreqs, recurs + 1, zeroblocks, readahead, 0);
                 }
             }
             lp  += hashsize;
@@ -2087,7 +2130,7 @@ int hashmatch ( struct context *ctx
     return 0;
 };
 
-enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off_t hlarge, off_t hsmall, int remdata, int fixedsalt, int diffsize, int zeroblocks, int flushcache, int progress)
+enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev, char *rdev, off_t hlarge, off_t hsmall, int remdata, int fixedsalt, int diffsize, int zeroblocks, int flushcache, int readahead, int progress)
 {
     char            *msg;
     size_t          msglen;
@@ -2179,7 +2222,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     send_digests (&wr_queue, sizeof (salt), salt, digest, (remdata ? checksum : NULL));
 
-    hashmatch (&ctx, digest, dg_md, cs_state, remdata, sizeof (salt), salt, devp, rdevsize, &rd_queue, &wr_queue, fd_err, 0, mdevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, 0, zeroblocks, progress);
+    hashmatch (&ctx, digest, dg_md, cs_state, remdata, sizeof (salt), salt, devp, rdevsize, &rd_queue, &wr_queue, fd_err, 0, mdevsize, hlarge, hsmall, MAXHASHES (hashsize), &hashreqs, 0, zeroblocks, readahead, progress);
 
     // finish the bdsync archive
     {
@@ -2474,6 +2517,7 @@ static struct option long_options[] = {
     , {"zeroblocks", no_argument,       0, 'z' }
     , {"warndev",    no_argument,       0, 'w' }
     , {"flushcache", no_argument,       0, 'F' }
+    , {"readahead",  required_argument, 0, 'R' }
     , {"progress",   no_argument,       0, 'P' }
     , {"help",       no_argument,       0, 'H' }
     , {0,            0,                 0,  0  }
@@ -2484,6 +2528,19 @@ enum mode {
 ,   mode_client
 ,   mode_server
 };
+
+long long arg2ll (char *arg)
+{
+    char *cp;
+    long long ret;
+
+    ret = strtol (optarg, &cp, 10);
+    if (cp == arg || *cp != '\0') {
+        fprintf (stderr, "bad number %s\n", optarg);
+        exit (exitcode_invalid_params);
+    }
+    return ret;
+}
 
 int main (int argc, char *argv[])
 {
@@ -2497,6 +2554,7 @@ int main (int argc, char *argv[])
     int   zeroblocks = 0;
     int   warndev    = 0;
     int   flushcache = 0;
+    int   readahead  = 0;
     int   progress   = 0;
     int   mode       = mode_client;
     int   retval     = 1;
@@ -2516,7 +2574,7 @@ int main (int argc, char *argv[])
         int option_index = 0;
         int c;
 
-        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd::zwFH"
+        c = getopt_long ( argc, argv, "sp::vb:h:c:trfd::zwFR:H"
                         , long_options, &option_index);
 
         if (c == -1) break;
@@ -2538,7 +2596,7 @@ int main (int argc, char *argv[])
             blocksize = strtol (optarg, &cp, 10);
             if (cp == optarg || *cp != '\0') {
                 fprintf (stderr, "bad number %s\n", optarg);
-                return exitcode_invalid_params;
+                exit (exitcode_invalid_params);
             }
             break;
         case 'h':
@@ -2558,7 +2616,7 @@ int main (int argc, char *argv[])
             break;
         case 'd':
             diffsize = parse_diffsize (diffsize, optarg);
-            if (diffsize == -1) return exitcode_invalid_params;
+            if (diffsize == -1) exit (exitcode_invalid_params);
             break;
         case 'z':
             zeroblocks = 1;
@@ -2569,6 +2627,9 @@ int main (int argc, char *argv[])
         case 'F':
             flushcache = 1;
             break;
+        case 'R':
+            readahead = arg2ll (optarg);
+            break;
         case 'P':
             progress = 1;
             break;
@@ -2578,7 +2639,7 @@ int main (int argc, char *argv[])
             break;
         case '?':
             show_usage (stderr);
-            return exitcode_invalid_params;
+            exit (exitcode_invalid_params);
         }
     }
     vhandler = verbose_printf;
@@ -2645,7 +2706,7 @@ int main (int argc, char *argv[])
             verbose (0, "Bad number of arguments %d\n", argc - optind);
             return exitcode_invalid_params;
         }
-        retval = do_server (zeroblocks);
+        retval = do_server (zeroblocks, readahead);
         break;
     case mode_client:
         if (optind != argc - 3) {
@@ -2655,7 +2716,7 @@ int main (int argc, char *argv[])
 
         if (!hash) hash = "md5";
 
-        retval = do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize, zeroblocks, flushcache, progress);
+        retval = do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize, zeroblocks, flushcache, readahead, progress);
         break;
     }
 

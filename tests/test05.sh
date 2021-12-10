@@ -59,4 +59,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5LOC1"
 }
 
-handle_check do_check "Handling different size (random) files with --diffsize=minsize option"
+handle_check "$1" do_check "Handling different size (random) files with --diffsize=minsize option"

@@ -28,7 +28,7 @@ do_check ()
     ./bdsync           "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
 
     #
-    # bdsync file shoudl be about 1 4k block in size
+    # bdsync file should be about 1 4k block in size
     #
     check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
     check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000
@@ -49,4 +49,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "basic functionality including --remdata and --patch"
+handle_check "$1" do_check "basic functionality including --remdata and --patch"

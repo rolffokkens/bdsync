@@ -21,5 +21,6 @@ OPTIONS:
 --diffsize[=OPTION]   Diff size handling: OPTION = strict, resize or minsize.
 --zeroblocks          Optimize for zero-filled blocks
 --flushcache          Actively flush OS buffer cache
+--readahead=RASIZE    Read ahead RASIZE bytes when reading
 --progress            Report progress during operation
 --help                Show this help

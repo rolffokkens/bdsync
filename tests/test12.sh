@@ -60,4 +60,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "stderr forwarding and status returning of subprocess"
+handle_check "$1" do_check "stderr forwarding and status returning of subprocess"

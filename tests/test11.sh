@@ -54,4 +54,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "large file (> 4G) handling"
+handle_check "$1" do_check "large file (> 4G) handling"

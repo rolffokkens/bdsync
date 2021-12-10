@@ -95,6 +95,10 @@ OS the data is no longer needed after reading it hence reducing OS buffer cache
 polution by bdsync. This works especially well when deltas are small, because
 in that case bdsync itself won't be reading blocks twice.
 
+**-R**, **--readahead=RASIZE**
+:   This client/server option makes bdsync initiate a readahead of RABYTES when reading 
+a block of data.
+
 **-P**, **--progress**
 :   This client option makes the client periodically report progress to stderr during
 operation. The format is:
@@ -103,7 +107,7 @@ operation. The format is:
 
 >   Where: **\<pct\>** is progress in %, **\<diffsize\>** is the current size of the
 generated diff, **\<pos\>** is the current position reading LOCDEV, **\<size\>** is the
-total size of LOCDEV, **\<elapsed s\>** is the elapsed time in seconds and 
+total size of LOCDEV, **\<elapsed s\>** is the elapsed time in seconds and
 **\<remaining s\>** is an estimate of the remaining time left in seconds.
 
 **-H**, **--help**

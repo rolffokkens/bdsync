@@ -25,4 +25,4 @@ do_check ()
     time ./bdsync --remdata --zeroblocks "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > /dev/null || abort_msg "bdsync (4) failed"
 }
 
-handle_check do_check "--zeroblocks speed test"
+handle_check "$1" do_check "--zeroblocks speed test"

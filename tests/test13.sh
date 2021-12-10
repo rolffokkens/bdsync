@@ -32,4 +32,4 @@ do_check ()
     check_sum "Bad checksum MD5ER2" "$MD5ER2" "28c57f9d52b8d542488703fda8afdaf5"
 }
 
-handle_check do_check "stderr forwarding and status returning of subprocess prior to bdsync execution"
+handle_check "$1" do_check "stderr forwarding and status returning of subprocess prior to bdsync execution"

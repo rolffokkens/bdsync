@@ -48,4 +48,4 @@ do_check ()
     check_sum "Inconsistent checksums MD5BD1/MD5BD4" "$MD5BD1" "$MD5BD4"
 }
 
-handle_check do_check "handling --zeroblocks option"
+handle_check "$1" do_check "handling --zeroblocks option"
