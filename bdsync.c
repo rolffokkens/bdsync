@@ -377,12 +377,82 @@ struct cs_state *init_checksum (const char *checksum)
     return state;
 }
 
-struct dev {
-    int   fd;
-    off_t size;
-    off_t relpos; /* data released from cache until pos     */
-    int   flush;  /* flush each block from the buffer cache */
+#define DEVBUFSIZ 1024*1024
+#define NDEVBUS 2
+
+struct devbuf {
+    char   *buf;
+    off_t  pos;
+    size_t size;
 };
+
+struct dev {
+    int    fd;
+    off_t  size;
+    off_t  relpos; /* data released from cache until pos     */
+    int    flush;  /* flush each block from the buffer cache */
+    off_t  bufpos;
+    size_t bufsize;
+    struct devbuf bufs[NDEVBUS];
+};
+
+int vpread_buf (struct dev *devp, void *buf, off_t len, off_t pos)
+{
+    struct devbuf *dbufp, *freebufp;
+    size_t        tlen;
+    int           ret;
+    off_t         minpos;
+
+    verbose (3, "vpread_buf (%lld, %lld)\n", (long long) len, (long long) pos);
+
+    while (len) {
+        /* Check if we have the data in memory already */
+        freebufp = NULL;
+        minpos   = -1;
+
+        for (dbufp = devp->bufs; dbufp < devp->bufs + NDEVBUS; dbufp++) {
+            if (dbufp->buf) {
+                /* Condider the "lowest" (=oldest) buffer as a potential free buffer */
+                if (!freebufp || dbufp->pos <= freebufp->pos) freebufp = dbufp;
+		/* Buffers never go backward (in terms of pos), keep track of minpos */
+                if (minpos == -1 || dbufp->pos < minpos) minpos = dbufp->pos;
+                if (dbufp->pos <= pos && pos < dbufp->pos + dbufp->size) {
+                    tlen = dbufp->pos + dbufp->size - pos;
+                    if (tlen > len) tlen = len;
+                    memcpy (buf, dbufp->buf + (pos - dbufp->pos), tlen);
+                    len -= tlen;
+                    pos += tlen;
+                    if (!len) return 0;
+                }
+            }
+        }
+
+        /* If there is a really free buffer, or an obsolete buffer, that's the best free buffer candidate */
+        for (dbufp = devp->bufs; dbufp < devp->bufs + NDEVBUS; dbufp++) {
+            if (!dbufp->buf || dbufp->pos + dbufp->size <= devp->relpos) freebufp = dbufp;
+        }
+        if (!freebufp) exitmsg (exitcode_read_error, "vpread_buf: no free buffer\n");
+
+        if (pos < minpos) {
+            verbose (2, "vpread_buf backward pread (%lld, %lld)\n", (long long) len, (long long) pos);
+            ret = pread (devp->fd, buf, len, pos);
+            if (ret != len) exitmsg (exitcode_read_error, "vpread_buf: pread1 %d: %s\n", ret, strerror (errno));
+        }
+
+        freebufp->pos  = pos - (pos % DEVBUFSIZ);
+        freebufp->size = devp->size - freebufp->pos;
+        if (freebufp->size > DEVBUFSIZ) freebufp->size = DEVBUFSIZ;
+	if (!freebufp->buf) freebufp->buf = malloc (DEVBUFSIZ);
+
+        verbose (2, "vpread_buf forward pread (%lld, %lld)\n", (long long) freebufp->size, (long long) freebufp->pos);
+        ret = pread (devp->fd, freebufp->buf, freebufp->size, freebufp->pos);
+        if (ret != freebufp->size) exitmsg (exitcode_read_error, "vpread_buf: pread2 %d: %s\n", ret, strerror (errno));
+
+        posix_fadvise (devp->fd, freebufp->pos, freebufp->size, POSIX_FADV_DONTNEED);
+        verbose (3, "posix_fadvise: start=%lld end=%lld\n", (long long)freebufp->pos, (long long)freebufp->pos+freebufp->size);
+    }
+    return 0;
+}
 
 int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
 {
@@ -390,6 +460,7 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
     int ret    = 0;
     char *cbuf = (char *)buf;
 
+    verbose (3, "vpread (%lld, %lld)\n", (long long) len, (long long) pos);
     if (pos + rlen > devp->size) {
         rlen = devp->size - pos;
 
@@ -397,15 +468,19 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
     }
     if (rlen) {
         if (devp->relpos > pos) {
-            verbose (0, "vpread: pos < relpos: relpos=%lld, pos=%lld\n", (long long)devp->relpos, (long long) pos);
+            verbose (0, "vpread warn: pos < relpos: relpos=%lld, pos=%lld\n", (long long)devp->relpos, (long long) pos);
         }
+        vpread_buf (devp, cbuf, rlen, pos);
+/*
         ret = pread (devp->fd, cbuf, rlen, pos);
         if (ret < 0) exitmsg (exitcode_read_error, "vpread: %s\n", strerror (errno));
+
         if (devp->flush) {
             // Use fadvise to release buffer/cache
             posix_fadvise (devp->fd, pos, rlen, POSIX_FADV_DONTNEED);
             verbose (3, "posix_fadvise: start=%lld end=%lld\n", (long long)pos, (long long)pos+rlen);
         }
+*/
     }
 
     if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
@@ -1730,10 +1805,13 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     }
     devp = (struct dev *) malloc (sizeof (struct dev));
     
-    devp->fd     = fd;
-    devp->size   = lseek (fd, 0, SEEK_END);
-    devp->relpos = 0;
-    devp->flush  = flushcache;
+    devp->fd      = fd;
+    devp->size    = lseek (fd, 0, SEEK_END);
+    devp->relpos  = 0;
+    devp->flush   = flushcache;
+    devp->bufpos  = 0;
+    devp->bufsize = DEVBUFSIZ;
+    memset (devp->bufs, 0, sizeof (devp->bufs));
 
     verbose (1, "opendev: opened %s\n", dev);
 
@@ -2667,3 +2745,5 @@ int main (int argc, char *argv[])
 
     return retval;
 }
+
+// vim: set noai nocin nosi inde=
