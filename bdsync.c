@@ -224,19 +224,57 @@ void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
 }
 
 int isverbose = 0;
-int neednewline = 0;
 void (*vhandler) (char *, va_list);
+
+void vfprintf_cond_lf (const char *format, va_list ap)
+{
+    static int neednewline = 0;
+    static char buf[1024];
+    int nchar;
+    char lchar;
+
+    if (format == NULL) {
+        if (neednewline) fprintf (stderr, "\n");
+        return;
+    }
+
+    nchar = vsnprintf (buf, sizeof(buf), format, ap);
+    if (nchar < 0 || nchar >= sizeof(buf))
+        /* SH*T now what */
+        return;
+
+    lchar = buf[nchar - 1];
+    if (lchar == '\n') {
+        if (neednewline) fprintf (stderr, "\n");
+    }
+    fprintf (stderr, "%s", buf);
+    switch (lchar) {
+    case '\n':
+        neednewline = 0;
+        break;
+    case '\r':
+        neednewline = 1;
+        break;
+    }
+    fflush (stderr);
+};
+
+void printf_cond_lf (char * format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    vfprintf_cond_lf (format, args);
+    va_end (args);
+};
 
 void verbose_syslog (char *format, va_list ap)
 {
-    if (neednewline) { syslog (LOG_INFO, "\n"); neednewline = 0; }
     vsyslog (LOG_INFO, format, ap);
 };
 
 void verbose_printf (char *format, va_list ap)
 {
-    if (neednewline) { fprintf (stderr, "\n"); neednewline = 0; }
-    vfprintf (stderr, format, ap);
+    vfprintf_cond_lf (format, ap);
 };
 
 void verbose (int level, char * format, ...)
@@ -1638,13 +1676,11 @@ void print_progress (struct context *ctx, int progress, off_t pos)
 
                 tdt = ctx->stat_size / rt;
                 cdt = dt / 1000;
-                fprintf (stderr, "%lld.%03lld,",  cdt / 1000,         cdt % 1000         );
-                fprintf (stderr, "%lld.%03lld        \r", (tdt - cdt) / 1000, (tdt - cdt ) % 1000);
+                printf_cond_lf ("%lld.%03lld,",          cdt / 1000,         cdt % 1000                         );
+                printf_cond_lf ("%lld.%03lld        %c", (tdt - cdt) / 1000, (tdt - cdt ) % 1000, (char)progress);
             } else {
-                fprintf (stderr, "-,-\r");
+                printf_cond_lf ("-,-%c", (char)progress);
             }
-            neednewline = 1;
-            fflush (stderr);
 
             ctx->stat_pct = stat_pct;
         }
@@ -2478,7 +2514,7 @@ static struct option long_options[] = {
     , {"zeroblocks", no_argument,       0, 'z' }
     , {"warndev",    no_argument,       0, 'w' }
     , {"flushcache", no_argument,       0, 'F' }
-    , {"progress",   no_argument,       0, 'P' }
+    , {"progress",   optional_argument, 0, 'P' }
     , {"help",       no_argument,       0, 'H' }
     , {0,            0,                 0,  0  }
 };
@@ -2574,7 +2610,13 @@ int main (int argc, char *argv[])
             flushcache = 1;
             break;
         case 'P':
-            progress = 1;
+            if (optarg) {
+                if (strcmp (optarg, "noscroll")) {
+                    fprintf (stderr, "bad progress option %s\n", optarg);
+                    return exitcode_invalid_params;
+                }
+            }
+            progress = (optarg ? '\r' : '\n');
             break;
         case 'H':
             show_usage (stdout);
@@ -2669,5 +2711,6 @@ int main (int argc, char *argv[])
     muntrace ();
 #   endif
 
+    printf_cond_lf(NULL);
     return retval;
 }
