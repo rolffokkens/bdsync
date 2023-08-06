@@ -13,7 +13,7 @@ bdsync.txt.2: bdsync.txt
 ifndef OS
 	sed 's/\(.*\)/"\1\\n"/g' bdsync.txt > bdsync.txt.2
 else
-	sed 's/\(.*\)\r/"\1\\r\\n"/g' bdsync.txt > bdsync.txt.2
+	sed 's/\(.*\)/"\1\\r\\n"/g' bdsync.txt > bdsync.txt.2
 endif
 
 bdsync: bdsync.c checkzero.c bdsync.txt.2
