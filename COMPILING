@@ -34,7 +34,7 @@ Windows (using cygwin)
 
 # install cygwin for Windows
 https://cygwin.com/install.html
-# Select packages gcc-g++, make, openssl-devel, wget, unzip on the 'Select Packages' screen
+# Select packages gcc-g++, make, libssl-devel, wget, unzip on the 'Select Packages' screen
 # Install Pandoc
 https://pandoc.org/installing.html
 # Add pandoc to the path
