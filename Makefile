@@ -11,8 +11,10 @@ all: bdsync bdsync.1
 
 bdsync.txt.2: bdsync.txt
 ifeq ($(OS),Windows_NT)
+	# This is an EOL='\r\n' OS (an MS-DOS descendent (which is a CP/M descendent))
 	sed 's/\(.*\)/"\1\\r\\n"/g' bdsync.txt > bdsync.txt.2
 else
+	# This is an EOL='\n' OS
 	sed 's/\(.*\)/"\1\\n"/g' bdsync.txt > bdsync.txt.2
 endif
 
