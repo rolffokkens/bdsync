@@ -224,15 +224,18 @@ void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
 }
 
 int isverbose = 0;
+int neednewline = 0;
 void (*vhandler) (char *, va_list);
 
 void verbose_syslog (char *format, va_list ap)
 {
+    if (neednewline) { syslog (LOG_INFO, "\n"); neednewline = 0; }
     vsyslog (LOG_INFO, format, ap);
 };
 
 void verbose_printf (char *format, va_list ap)
 {
+    if (neednewline) { fprintf (stderr, "\n"); neednewline = 0; }
     vfprintf (stderr, format, ap);
 };
 
@@ -1636,10 +1639,11 @@ void print_progress (struct context *ctx, int progress, off_t pos)
                 tdt = ctx->stat_size / rt;
                 cdt = dt / 1000;
                 fprintf (stderr, "%lld.%03lld,",  cdt / 1000,         cdt % 1000         );
-                fprintf (stderr, "%lld.%03lld\n", (tdt - cdt) / 1000, (tdt - cdt ) % 1000);
+                fprintf (stderr, "%lld.%03lld        \r", (tdt - cdt) / 1000, (tdt - cdt ) % 1000);
             } else {
-                fprintf (stderr, "-,-\n");
+                fprintf (stderr, "-,-\r");
             }
+            neednewline = 1;
             fflush (stderr);
 
             ctx->stat_pct = stat_pct;
