@@ -6,7 +6,7 @@
  */
 
 #if __x86_64__
-int checkzero(void *p, int len)
+int checkzero (void *p, int len)
 {
     int is_zero;
     __asm__ (
@@ -14,7 +14,7 @@ int checkzero(void *p, int len)
         "xorb %%al, %%al\n"
         "repz scasb\n"
         : "=c" (is_zero)
-        : "c" (len), "D" (p), "m" (*(const char (*)[]) p)
+        : "c" (len), "D" (p)
         : "eax", "cc"
     );
     return !is_zero;
