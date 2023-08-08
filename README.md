@@ -95,7 +95,7 @@ OS the data is no longer needed after reading it hence reducing OS buffer cache
 polution by bdsync. This works especially well when deltas are small, because
 in that case bdsync itself won't be reading blocks twice.
 
-**-P**, **--progress**
+**-P**, **--progress=[noscroll]**
 :   This client option makes the client periodically report progress to stderr during
 operation. The format is:
 
@@ -105,6 +105,8 @@ operation. The format is:
 generated diff, **\<pos\>** is the current position reading LOCDEV, **\<size\>** is the
 total size of LOCDEV, **\<elapsed s\>** is the elapsed time in seconds and 
 **\<remaining s\>** is an estimate of the remaining time left in seconds.
+
+>   When **noscroll** is specified, each progress update will be printed on the same line.
 
 **-H**, **--help**
 :   Display brief help information.

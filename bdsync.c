@@ -226,6 +226,45 @@ void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
 int isverbose = 0;
 void (*vhandler) (char *, va_list);
 
+// In general an newline is a newline including a LF (Line Feed)...
+// but sometimes it's only a '\r' when printing progress. That doesn't mix well
+// so be explicit by passing crlf:
+// crlf == '\n': LF expected, make sure LF preceeds this text
+// crfl == '\r': No LF expected, take note though for future situations
+// crlf == 0:    No expection at all, print on same line.
+//
+void vfprintf_cond_lf (char crlf, const char *format, va_list ap)
+{
+    static int lf_suppressed = 0;
+
+    if (crlf == '\n' || format == NULL) {
+        if (lf_suppressed) fprintf (stderr, "\n");
+	lf_suppressed = 0;
+        if (format == NULL) return;
+    }
+
+    vfprintf (stderr, format, ap);
+
+    switch (crlf) {
+    case '\n':
+        lf_suppressed = 0;
+        break;
+    case '\r':
+        lf_suppressed = 1;
+        break;
+    }
+
+    fflush (stderr);
+};
+
+void printf_cond_lf (char crlf, char *format, ...)
+{
+    va_list args;
+    va_start (args, format);
+    vfprintf_cond_lf (crlf, format, args);
+    va_end (args);
+};
+
 void verbose_syslog (char *format, va_list ap)
 {
     vsyslog (LOG_INFO, format, ap);
@@ -233,7 +272,7 @@ void verbose_syslog (char *format, va_list ap)
 
 void verbose_printf (char *format, va_list ap)
 {
-    vfprintf (stderr, format, ap);
+    vfprintf_cond_lf ('\n', format, ap);
 };
 
 void verbose (int level, char * format, ...)
@@ -1619,7 +1658,7 @@ int flush_checksum (struct cs_state **state, size_t *len, unsigned char **buf)
 void print_progress (struct context *ctx, int progress, off_t pos)
 {
     uint64_t dt;
-    int      rt;
+    int      rt, crlf;
 
     if (progress && ctx) {
         int stat_pct = pos * 100 / ctx->stat_size;
@@ -1630,17 +1669,17 @@ void print_progress (struct context *ctx, int progress, off_t pos)
             rt = pos * 1000 / dt;
 
             fprintf (stderr, "PROGRESS:%03d%%,%lld,%lld,%lld,", stat_pct, (long long) ctx->stat_diffttl, (long long) pos, (long long) ctx->stat_size);
+            crlf = (char)progress;
             if (rt) {
                 long long tdt, cdt;
 
                 tdt = ctx->stat_size / rt;
                 cdt = dt / 1000;
-                fprintf (stderr, "%lld.%03lld,",  cdt / 1000,         cdt % 1000         );
-                fprintf (stderr, "%lld.%03lld\n", (tdt - cdt) / 1000, (tdt - cdt ) % 1000);
+                printf_cond_lf (0,    "%lld.%03lld,",          cdt / 1000,         cdt % 1000               );
+                printf_cond_lf (crlf, "%lld.%03lld        %c", (tdt - cdt) / 1000, (tdt - cdt ) % 1000, crlf);
             } else {
-                fprintf (stderr, "-,-\n");
+                printf_cond_lf (crlf, "-,-%c", crlf);
             }
-            fflush (stderr);
 
             ctx->stat_pct = stat_pct;
         }
@@ -2474,7 +2513,7 @@ static struct option long_options[] = {
     , {"zeroblocks", no_argument,       0, 'z' }
     , {"warndev",    no_argument,       0, 'w' }
     , {"flushcache", no_argument,       0, 'F' }
-    , {"progress",   no_argument,       0, 'P' }
+    , {"progress",   optional_argument, 0, 'P' }
     , {"help",       no_argument,       0, 'H' }
     , {0,            0,                 0,  0  }
 };
@@ -2570,7 +2609,13 @@ int main (int argc, char *argv[])
             flushcache = 1;
             break;
         case 'P':
-            progress = 1;
+            if (optarg) {
+                if (strcmp (optarg, "noscroll")) {
+                    fprintf (stderr, "bad progress option %s\n", optarg);
+                    return exitcode_invalid_params;
+                }
+            }
+            progress = (optarg ? '\r' : '\n');
             break;
         case 'H':
             show_usage (stdout);
@@ -2665,5 +2710,6 @@ int main (int argc, char *argv[])
     muntrace ();
 #   endif
 
+    printf_cond_lf('\n', NULL);
     return retval;
 }
