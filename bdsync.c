@@ -970,7 +970,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
         verbose (3, "get_rd_queue: poll %d\n", tmp);
 
-        if (pfd[0].revents & POLLIN) async_cnt += fill_rd_queue (ctx, prd_queue, handler);
+        if (pfd[0].revents & (POLLIN|POLLHUP)) async_cnt += fill_rd_queue (ctx, prd_queue, handler);
         if (pfd[1].revents) {
             if (pfd[1].revents & POLLOUT) {
                 flush_wr_queue (pwr_queue, 0);
