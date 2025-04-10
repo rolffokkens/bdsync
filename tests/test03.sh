@@ -33,7 +33,7 @@ do_check ()
     ./bdsync --diffsize=resize "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 || abort_msg "bdsync (2) failed"
 
     #
-    # bdsync file shoudl be about 1 4k block in size
+    # bdsync file should be about 1 4k block in size
     #
     check_sizemax "file BDSYNC1 too large" $BDSYNC1 5000
     check_sizemax "file BDSYNC2 too large" $BDSYNC2 5000
