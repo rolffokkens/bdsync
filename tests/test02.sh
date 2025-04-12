@@ -44,7 +44,7 @@ do_check ()
     [[ "`cat $TMPF`" == checksum[md5\]:* ]] || abort_msg "ERROR: no checksum returned by --patch"
     CHECKSUM=`awk '{ print $2}' $TMPF`
 
-    check_sum "Fifferent checksums patch/actual" "$CHECKSUM" "$MD5REM1"
+    check_sum "Different checksums patch/actual" "$CHECKSUM" "$MD5REM1"
 
     MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`

@@ -34,7 +34,7 @@ do_check ()
     ./bdsync --remdata --diffsize=minsize "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC4 || abort_msg "bdsync (4) failed"
 
     #
-    # bdsync file shoudl be about 1 4k block in size
+    # bdsync file should be about 1 4k block in size
     #
     check_sizemax "file BDSYNC1 too large" $BDSYNC1 1100000
     check_sizemax "file BDSYNC2 too large" $BDSYNC2 1100000
