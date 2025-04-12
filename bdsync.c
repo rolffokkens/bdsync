@@ -2305,8 +2305,6 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
     off_t          ndevsize;
     int            bufsize = 4096;
     char           *buf = malloc (bufsize);
-    off_t          lpos;
-    int            bytct = 0, blkct = 0, segct = 0;
     unsigned short devlen;
     char           *devname;
     struct dev     *devp = NULL;
@@ -2372,8 +2370,6 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         }
     }
 
-    lpos = -1;
-
     for (;;) {
         off_t          pos;
         unsigned short blen;
@@ -2386,10 +2382,6 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         }
         if (pos == 0 && blen == 0) break;
 
-        bytct += blen;
-        blkct++;
-        if (pos != lpos) segct++;
-
         if (bufsize < blen) {
             free (buf);
             bufsize = blen;
@@ -2400,8 +2392,6 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             exit (exitcode_invalid_patch_format);
         }
         verbose (3, "do_patch: write 1: pos=%lld len=%d\n", (long long)pos, blen);
-
-        lpos = pos + blen;
 
         if (pos + blen > devp->size) {
             /* optional check for ds_minsize here? */
