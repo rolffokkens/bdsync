@@ -1,8 +1,6 @@
 #!/bin/bash
 
-DIR=`dirname "$0"`
-
-. $DIR/testlib.sh
+. `dirname "$0"`/testlib.sh
 
 do_check ()
 {
@@ -13,30 +11,23 @@ do_check ()
     local REMDEV="$TDIR/REMDEV"
     local BDSYNC1="$TDIR/DEV.bdsync1"
     local BDSYNC2="$TDIR/DEV.bdsync2"
-    local BDSERR1="$TDIR/err.bdsync1"
-    local BDSERR2="$TDIR/err.bdsync2"
 
-    local SUBPROC="$DIR/subp12-1.sh"
+    cre_sparse_file $LOCDEV 5G
+    cre_sparse_file $REMDEV 5G
 
-    cre_sparse_file $LOCDEV 1234567
-    cre_sparse_file $REMDEV 1234567
-
-    echo .abcd | overwrite_file $LOCDEV 123456
-    echo .abXd | overwrite_file $REMDEV 123456
+    echo .abcd | overwrite_file $LOCDEV 512k
+    echo .abXd | overwrite_file $REMDEV 512k
 
     MD5LOC1=`get_md5 $LOCDEV`
     MD5REM1=`get_md5 $REMDEV`
 
-    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "562945267ae01c091f9f3bc9b6dd7f3e"
-    check_sum "Bad checksum MD5REM1" "$MD5REM1" "11578a7e90a2c275ab157f9fde66a15d"
+    check_sum "Bad checksum MD5LOC1" "$MD5LOC1" "8e382bc861c96d6d811cc8a93eb83b14"
+    check_sum "Bad checksum MD5REM1" "$MD5REM1" "9252f97687f1608054df9ca1b85cc624"
 
-    ./bdsync --remdata "$SUBPROC 1" $LOCDEV $REMDEV > $BDSYNC1 2> $BDSERR1 && abort_msg "bdsync (1) failed"
-    MD5ER1=`get_md5 $BDSERR1`
-    check_sum "Bad checksum MD5ER1" "$MD5ER1" "2780dbd9a376e11c660a8f98d53ba9e4"
-
-    ./bdsync           "$SUBPROC 1" $REMDEV $LOCDEV > $BDSYNC2 2> $BDSERR2 && abort_msg "bdsync (2) failed"
-    MD5ER2=`get_md5 $BDSERR2`
-    check_sum "Bad checksum MD5ER1" "$MD5ER2" "2780dbd9a376e11c660a8f98d53ba9e4"
+    ./bdsync --checksum md5 --zeroblocks --remdata "./bdsync -s --zeroblocks" $LOCDEV $REMDEV > $BDSYNC1 \
+        || abort_msg "bdsync (1) failed"
+    ./bdsync --checksum md5 --zeroblocks           "./bdsync -s --zeroblocks" $REMDEV $LOCDEV > $BDSYNC2 \
+        || abort_msg "bdsync (2) failed"
 
     #
     # bdsync file should be about 1 4k block in size
@@ -51,7 +42,10 @@ do_check ()
 
     ./bdsync --patch < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
 
-    [[ "`cat $TMPF`" == Warning:* ]] && abort_msg "ERROR: \"Warning: different device names\" should NOT be issued"
+    [[ "`cat $TMPF`" == checksum[md5\]:* ]] || abort_msg "ERROR: no checksum returned by --patch"
+    CHECKSUM=`awk '{ print $2}' $TMPF`
+
+    check_sum "Different checksums patch/actual" "$CHECKSUM" "$MD5REM1"
 
     MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`
@@ -60,4 +54,4 @@ do_check ()
     check_sum "Bad checksum MD5REM2" "$MD5REM2" "$MD5REM1"
 }
 
-handle_check do_check "stderr forwarding and status returning of subprocess"
+handle_check do_check "large file (> 4G) handling"
