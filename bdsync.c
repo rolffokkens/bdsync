@@ -132,7 +132,15 @@ void update_time ()
 
 typedef int (*async_handler)(struct context *, unsigned char, char *, size_t);
 
-extern int checkzero (void *p, int len);
+int checkzero (void *p, int len)
+{
+    char *cp = (char *)p;
+
+    while (len--) {
+        if (*cp++) return 0;
+    }
+    return 1;
+}
 
 void show_usage (FILE *fp)
 {
