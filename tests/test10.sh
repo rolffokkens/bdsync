@@ -42,7 +42,7 @@ do_check ()
 
     ./bdsync --patch=$LOCDEV.rename --warndev < $BDSYNC1 2> "$TMPF" || abort_msg "bdsync (3) failed"
 
-    [[ "`cat $TMPF`" == Warning:* ]] || abort_msg "ERROR: \"Warning: different device names\" SHOULD be issued"
+    [[ "`cat $TMPF`" == WARNING:* ]] || abort_msg "ERROR: \"WARNING: different device names\" SHOULD be issued"
 
     MD5LOC2=`get_md5 $LOCDEV.rename`
     MD5REM2=`get_md5 $REMDEV`

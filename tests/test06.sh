@@ -33,8 +33,8 @@ do_check ()
     ./bdsync --diffsize=resize,warn "./bdsync -s" $LOCDEV $REMDEV > $BDSYNC1 2> "$TMPF1" || abort_msg "bdsync (1) failed"
     ./bdsync --diffsize=resize      "./bdsync -s" $REMDEV $LOCDEV > $BDSYNC2 2> "$TMPF2" || abort_msg "bdsync (2) failed"
 
-    [[ "`cat $TMPF1`" == Different* ]] || abort_msg "ERROR: \"Different sizes SHOULD be issued (1)"
-    [[ "`cat $TMPF2`" == Different* ]] && abort_msg "ERROR: \"Different sizes should NOT be issued (2)"
+    [[ "`cat $TMPF1`" == WARNING:\ Different* ]] || abort_msg "ERROR: \"Different sizes SHOULD be issued (1)"
+    [[ "`cat $TMPF2`" == WARNING:\ Different* ]] && abort_msg "ERROR: \"Different sizes should NOT be issued (2)"
 
     #
     # bdsync file should be about 1 4k block in size
@@ -48,8 +48,8 @@ do_check ()
     ./bdsync --diffsize=resize,warn --patch < $BDSYNC1 2> "$TMPF1" || abort_msg "bdsync (3) failed"
     ./bdsync --diffsize=resize      --patch < $BDSYNC2 2> "$TMPF2" || abort_msg "bdsync (4) failed"
 
-    [[ "`cat $TMPF1`" == Different* ]] || abort_msg "ERROR: \"Different sizes SHOULD be issued (3)"
-    [[ "`cat $TMPF2`" == Different* ]] && abort_msg "ERROR: \"Different sizes should NOT be issued (4)"
+    [[ "`cat $TMPF1`" == WARNING:\ Different* ]] || abort_msg "ERROR: \"Different sizes SHOULD be issued (3)"
+    [[ "`cat $TMPF2`" == WARNING:\ Different* ]] && abort_msg "ERROR: \"Different sizes should NOT be issued (4)"
 
     MD5LOC2=`get_md5 $LOCDEV`
     MD5REM2=`get_md5 $REMDEV`

@@ -232,7 +232,7 @@ void init_rd_queue (struct rd_queue *pqueue, int rd_fd)
 }
 
 int isverbose = 0;
-void (*vhandler) (char *, va_list);
+void (*vhandler) (char *);
 
 // In general an newline is a newline including a LF (Line Feed)...
 // but sometimes it's only a '\r' when printing progress. That doesn't mix well
@@ -241,17 +241,17 @@ void (*vhandler) (char *, va_list);
 // crfl == '\r': No LF expected, take note though for future situations
 // crlf == 0:    No expection at all, print on same line.
 //
-void vfprintf_cond_lf (char crlf, const char *format, va_list ap)
+void fprintf_cond_lf (char crlf, const char *str)
 {
     static int lf_suppressed = 0;
 
-    if (crlf == '\n' || format == NULL) {
+    if (crlf == '\n' || str == NULL) {
         if (lf_suppressed) fprintf (stderr, "\n");
 	lf_suppressed = 0;
-        if (format == NULL) return;
     }
+    if (str == NULL) return;
 
-    vfprintf (stderr, format, ap);
+    fprintf (stderr, str);
 
     switch (crlf) {
     case '\n':
@@ -265,42 +265,72 @@ void vfprintf_cond_lf (char crlf, const char *format, va_list ap)
     fflush (stderr);
 };
 
+char *format_string (char *prefix, char *format, va_list ap)
+{
+    char *str1, *str2;
+
+    vasprintf (&str1, format, ap);
+    if (!prefix) return str1;
+
+    asprintf (&str2, "%s%s", prefix, str1);
+    free (str1);
+
+    return (str2);
+}
+
 void printf_cond_lf (char crlf, char *format, ...)
 {
     va_list args;
-    va_start (args, format);
-    vfprintf_cond_lf (crlf, format, args);
-    va_end (args);
+    char *str;
+
+    if (format) {
+        va_start (args, format);
+        str = format_string (NULL, format, args);
+        va_end (args);
+
+        fprintf_cond_lf (crlf, str);
+        free (str);
+    } else {
+        fprintf_cond_lf (crlf, NULL);
+    }
 };
 
-void verbose_syslog (char *format, va_list ap)
+void verbose_syslog (char *str)
 {
-    vsyslog (LOG_INFO, format, ap);
+    syslog (LOG_INFO, str);
 };
 
-void verbose_printf (char *format, va_list ap)
+void verbose_printf (char *str)
 {
-    vfprintf_cond_lf ('\n', format, ap);
+    fprintf_cond_lf ('\n', str);
 };
 
 void verbose (int level, char * format, ...)
 {
     va_list args;
+    char *str;
 
     if (level > isverbose) return;
 
     va_start (args, format);
-    vhandler (format, args);
+    str = format_string (NULL, format, args);
     va_end (args);
+
+    vhandler (str);
+    free (str);
 };
 
 void exitmsg (enum exitcode code, char * format, ...)
 {
     va_list args;
+    char *str;
 
     va_start (args, format);
-    vhandler (format, args);
+    str = format_string ("ERROR: ", format, args);
     va_end (args);
+
+    vhandler (str);
+    free (str);
 
     exit (code);
 };
@@ -354,10 +384,7 @@ hash_ctx _init_cs (const char *checksum, int *hs)
 
     md  = hash_getbyname (checksum);
 
-    if (!md) {
-        verbose (0, "Bad checksum %s\n", checksum);
-        exit (exitcode_checksum_error);
-    }
+    if (!md) exitmsg (exitcode_checksum_error, "_init_cs: Bad checksum %s\n", checksum);
 
     *hs = hash_getsize (md);
     hash_init (ctx, md);
@@ -443,9 +470,9 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
         if (rlen < 0) rlen = 0;
     }
     if (rlen) {
-        if (devp->relpos > pos) {
-            verbose (0, "vpread: pos < relpos: relpos=%lld, pos=%lld\n", (long long)devp->relpos, (long long) pos);
-        }
+        if (devp->relpos > pos) exitmsg (exitcode_read_error, "vpread: pos < relpos: relpos=%lld, pos=%lld\n"
+                                                            , (long long)devp->relpos, (long long) pos);
+
         ret = pread (devp->fd, cbuf, rlen, pos);
         if (ret < 0) exitmsg (exitcode_read_error, "vpread: %s\n", strerror (errno));
         if (devp->flush) {
@@ -557,7 +584,7 @@ int init_salt (int saltsize, unsigned char *salt, int fixedsalt)
         int fd = open("/dev/urandom", O_RDONLY);
 
         if (read (fd, salt, saltsize) != saltsize) {
-            exitmsg (exitcode_source_randomness_error, "piped_child: %s\n", strerror (errno));
+            exitmsg (exitcode_source_randomness_error, "init_salt: %s\n", strerror (errno));
         }
 
         close(fd);
@@ -633,14 +660,14 @@ pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pw
         if (*f == ' ') continue;
         /* Comparison leaves rooms for server_options(). */
         if (argc >= ARGMAX - 1) {
-            exitmsg (exitcode_invalid_params, "internal: args[] overflowed in do_command()\n");
+            exitmsg (exitcode_invalid_params, "do_command: argc >= ARGMAX - 1\n");
         }
         args[argc++] = t;
         while (*f != ' ' || in_quote) {
             if (!*f) {
                 if (in_quote) {
                     exitmsg (exitcode_invalid_params
-                            , "Missing trailing-%c in remote-shell command.\n"
+                            , "do_command: Missing trailing-%c in remote-shell command.\n"
                             , in_quote);
                 }
                 f--;
@@ -737,12 +764,20 @@ static char *hintstring[] = {
 ,  "relpos"
 };
 
+const char *get_msgstring(int token)
+{
+    if (token < 1 || token >= msg_max) {
+        return "ERROR";
+    }
+    return msgstring[token];
+};
+
 int msg_write (int fd, unsigned char token, char *buf, size_t len)
 {
     u_int32_t tmp = len + 1;
     char      tbuf[sizeof (tmp)];
 
-    verbose (2, "msg_write: msg = %s, len = %d\n", msgstring[token], len);
+    verbose (2, "msg_write: msg = %s, len = %d\n", get_msgstring(token), len);
 
     if (write (fd, int2char (tbuf, tmp, sizeof (tmp)), sizeof (tmp)) != sizeof (tmp)) {
         exit (exitcode_write_error);
@@ -761,11 +796,10 @@ int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_
 {
     struct msg *pmsg;
 
-    verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgstring[token], len);
+    verbose (2, "add_wr_queue: msg = %s, len = %d\n", get_msgstring(token), len);
 
     if (pqueue->state == qeof) {
-        verbose (0, "add_wr_queue: EOF\n");
-        exit (exitcode_write_error);
+        exitmsg (exitcode_write_error, "add_wr_queue: EOF\n");
     }
 
     pmsg = (struct msg *) malloc (sizeof (struct msg) + len + 1);
@@ -810,7 +844,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(phd->data[0])], phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", get_msgstring((unsigned char)(phd->data[0])), phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -832,8 +866,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
 
             if (pfd.revents) {
                 if (!(pfd.revents & POLLOUT)) {
-                    verbose (0, "flush_wr_queue: poll error on fd %d\n", pfd.fd);
-                    exit (exitcode_write_error);
+                    exitmsg (exitcode_write_error, "flush_wr_queue: poll error on fd %d\n", pfd.fd);
                 }
             }
         }
@@ -841,8 +874,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         if (tmp == 0) break;
         if (tmp == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            verbose (0, "flush_wr_queue: %s\n", strerror (errno));
-            exit (exitcode_write_error);
+            exitmsg (exitcode_write_error, "flush_wr_queue: %s\n", strerror (errno));
         }
         retval      += tmp;
         pqueue->pos += tmp;
@@ -868,8 +900,7 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
                 struct msg *pmsg;
                 len = char2int ((char *)pqueue->tlen, sizeof (pqueue->tlen));
                 if (len > MSGMAX) {
-                    verbose (0, "fill_rd_queue: bad msg size %d\n", (int)len);
-                    exit (exitcode_read_error);
+                    exitmsg (exitcode_read_error, "fill_rd_queue: bad msg size %d\n", (int)len);
                 }
 
                 pmsg       = malloc (sizeof (struct msg) + len + 1);
@@ -888,7 +919,7 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
             len = pmsg->len - pqueue->pos;
             if (len == 0) {
                 /* Full message present */
-                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(pmsg->data[0])], (int)pmsg->len - 1);
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", get_msgstring((unsigned char)(pmsg->data[0])), (int)pmsg->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -924,16 +955,15 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
             /* When reading the header at pos 0 it's OK */
             if (pqueue->state == qhdr && pqueue->pos == 0) {
                 pqueue->state = qeof;
-                verbose (3, "fill_rd_queue: eof\n");
+                verbose (3, "fill_rd_queue: EOF\n");
                 continue;
             }
-            verbose (0, "fill_rd_queue: EOF\n");
+            exitmsg (exitcode_read_error, "fill_rd_queue: EOF\n");
             exit (exitcode_read_error);
         }
         if (tmp == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            verbose (0, "fill_rd_queue: %s\n", strerror (errno));
-            exit (exitcode_read_error);
+            exitmsg (exitcode_read_error, "fill_rd_queue: %s\n", strerror (errno));
         }
         pqueue->pos += tmp;
         addlen += tmp;
@@ -988,12 +1018,10 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
                         pwr_queue->state = qeof;
                         verbose (3, "get_rd_queue: poll pollhup\n");
                     } else {
-                        verbose (0, "get_rd_queue: poll POLLHUP\n");
-                        exit (exitcode_read_error);
+                        exitmsg (exitcode_read_error, "get_rd_queue: poll POLLHUP\n");
                     }
                 } else {
-                    verbose (0, "get_rd_queue: poll error on fd %d\n", pfd[1].fd);
-                    exit (exitcode_read_error);
+                    exitmsg (exitcode_read_error, "get_rd_queue: poll error on fd %d\n", pfd[1].fd);
                 }
             }
         }
@@ -1030,9 +1058,8 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
             verbose (2, "get_rd_queue: msg = -, len = 0\n");
             return 0;
         }
-        verbose (0, "get_rd_queue: EOF %d\n", pfd[1].fd);
         handle_err (fd_err);
-        exit (exitcode_read_error);
+        exitmsg (exitcode_read_error, "get_rd_queue: EOF %d\n", pfd[1].fd);
     }
 
     *token  = phd->data[0];
@@ -1046,7 +1073,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
     free (phd);
 
-    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgstring[*token], *msglen);
+    verbose (2, "get_rd_queue: msg = %s, len = %d\n", get_msgstring(*token), *msglen);
 
     return 1;
 }
@@ -1111,13 +1138,11 @@ int send_digests (struct wr_queue *pqueue, int saltsize, unsigned char *salt, ch
     int        ret;
 
     if (saltsize > 127) {
-        verbose (0, "send_digests: bad saltsize %d\n", saltsize);
-        exit (exitcode_digest_error);
+        exitmsg (exitcode_digest_error, "send_digests: bad saltsize %d\n", saltsize);
     }
 
     if (!digest[0]) {
-        verbose (0, "send_digests: empty digest\n");
-        exit (exitcode_digest_error);
+        exitmsg (exitcode_digest_error, "send_digests: empty digest\n");
     }
 
     if (isverbose >= 1) {
@@ -1288,11 +1313,9 @@ void read_all (int fd, char *buf, size_t buflen)
         tmp = read (fd, buf, buflen);
         switch (tmp) {
         case -1:
-            verbose (0, "read_all: %s\n", strerror (errno));
-            exit (exitcode_read_error);
+            exitmsg (exitcode_read_error, "read_all: %s\n", strerror (errno));
         case 0:
-            verbose (0, "read_all: EOF\n");
-            exit (exitcode_read_error);
+            exitmsg (exitcode_read_error, "read_all: EOF\n");
         }
         buf    += tmp;
         buflen -= tmp;
@@ -1308,7 +1331,7 @@ int msg_read (int fd, char **buf, size_t *buflen, unsigned char *token, char **m
     tmp = char2int (tbuf, sizeof (tmp));
 
     if (tmp > maxlen) {
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "msg_read: tmp > maxlen\n");
     }
 
     if (*buf && tmp > *buflen) {
@@ -1330,19 +1353,19 @@ int msg_read (int fd, char **buf, size_t *buflen, unsigned char *token, char **m
     *msg   = (*buf) + 1;
 
     if (*token < 1 || *token >= msg_max) {
-        verbose (0, "Unknown message %d\n", *token);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "msg_read: Unknown message %d\n", *token);
     }
 
-
-    verbose (2, "msg_read: msg = %s, len = %d\n", msgstring[*token], (int)tmp - 1);
+    verbose (2, "msg_read: msg = %s, len = %d\n", get_msgstring(*token), (int)tmp - 1);
 
     return 0;
 };
 
 int parse_msgstring (char *msgbuf, size_t msglen, char **str, size_t minlen)
 {
-    if (*str || msglen < minlen) exit (exitcode_protocol_error);
+    if (*str || msglen < minlen) {
+        exitmsg (exitcode_protocol_error, "parse_msgstring: msglen < minlen\n");
+    }
 
     *str = (char *) malloc (msglen + 1);
 
@@ -1372,13 +1395,11 @@ int parse_hello (char *msgbuf, size_t msglen, char **hello)
 
     p = strchr (*hello, ' ');
     if (p == NULL) {
-        verbose (0, "parse_hello: Missing protocol version '%s'\n", *hello);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_hello: Missing protocol version '%s'\n", *hello);
     }
 
     if (strcmp (p + 1, PROTOVER)) {
-        verbose (0, "parse_hello: Bad protocol version %s\n", p + 1);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_hello: Bad protocol version %s\n", p + 1);
     }
     *p = '\0';
 
@@ -1389,7 +1410,9 @@ int parse_hello (char *msgbuf, size_t msglen, char **hello)
 
 int parse_size (char *msgbuf, size_t msglen, off_t *size)
 {
-    if (msglen != sizeof (*size)) exit (exitcode_protocol_error);
+    if (msglen != sizeof (*size)) {
+        exitmsg (exitcode_protocol_error, "parse_size: msglen != sizeof (*size)\n");
+    }
 
     *size = char2int (msgbuf, sizeof (*size));
 
@@ -1420,15 +1443,13 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
     const char *digest, *checksum;
 
     if (msglen < 1) {
-        verbose (0, "parse_digests: bad size=%lld\n", (long long)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_digests: bad size=%lld\n", (long long)msglen);
     }
 
     *saltsize = (int)(*msgbuf++);
     if (msglen < *saltsize + 1) {
         if (msglen < 1) {
-            verbose (0, "parse_digests: bad size=%lld, salt size = %d\n", (long long)msglen, *saltsize);
-            exit (exitcode_protocol_error);
+            exitmsg (exitcode_protocol_error, "parse_digests: bad size=%lld, salt size = %d\n", (long long)msglen, *saltsize);
         }
     }
 
@@ -1442,16 +1463,14 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
     checksum = get_string (&msgbuf, &msglen);
 
     if (!digest || !checksum) {
-        verbose (0, "parse_digests: missing digest\n");
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_digests: missing digest\n");
     }
 
     *dg_nm = strdup (digest);
     *dg_md = hash_getbyname (digest);
 
     if (!*dg_md) {
-        verbose (0, "parse_digests: bad digest %s\n", digest);
-        exit (exitcode_digest_error);
+        exitmsg (exitcode_digest_error, "parse_digests: bad digest %s\n", digest);
     }
 
     *cs_state = (*checksum != '\0' ? init_checksum (checksum) : NULL);
@@ -1473,8 +1492,7 @@ int parse_gethashes ( char *msgbuf, size_t msglen
     int   i;
 
     if (msglen != sizeof (par)) {
-        verbose (0, "parse_gethashes: bad message size %d\n", (int)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_gethashes: bad message size %d\n", (int)msglen);
     }
 
     for (i = 0; i < 3; i++, msgbuf += sizeof (par[0])) {
@@ -1520,8 +1538,7 @@ int parse_getblock ( char *msgbuf, size_t msglen
     int   i;
 
     if (msglen != sizeof (par)) {
-        verbose (0, "parse_getblock: bad message size %d\n", (int)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_getblock: bad message size %d\n", (int)msglen);
     }
 
     for (i = 0; i < 2; i++, msgbuf += sizeof (par[0])) {
@@ -1541,8 +1558,7 @@ int parse_block ( char *msgbuf, size_t msglen
 {
     /* there should at least 1 byte in the block */
     if (msglen < sizeof (*pos) + 1) {
-        verbose (0, "parse_getblock: bad message size %d\n", (int)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_getblock: bad message size %d\n", (int)msglen);
     }
 
     *pos    = char2int (msgbuf, sizeof (*pos));
@@ -1562,8 +1578,7 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
     int   i;
 
     if (msglen < sizeof (par)) {
-        verbose (0, "parse_hashes: bad size=%lld minimum=%lld\n", (long long)msglen, (long long)(sizeof (par)));
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_hashes: bad size=%lld minimum=%lld\n", (long long)msglen, (long long)(sizeof (par)));
     }
 
     for (i = 0; i < 3; i++, msgbuf += sizeof (par[0])) {
@@ -1575,8 +1590,7 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
     *nstep = par[2];
 
     if (msglen != sizeof (par) + *nstep * hashsize) {
-        verbose (0, "parse_hashes: bad size=%lld expected=%lld\n", (long long)msglen, (long long)(sizeof (par) + *nstep * hashsize));
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_hashes: bad size=%lld expected=%lld\n", (long long)msglen, (long long)(sizeof (par) + *nstep * hashsize));
     }
 
     if (*nstep) {
@@ -1596,8 +1610,7 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
 int parse_getchecksum (char *msgbuf, size_t msglen)
 {
     if (msglen != 0) {
-        verbose (0, "parse_getchecksum: bad message size %d\n", (int)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_getchecksum: bad message size %d\n", (int)msglen);
     }
 
     return 0;
@@ -1608,8 +1621,7 @@ int parse_checksum ( char *msgbuf, size_t msglen
 {
     /* there should at least 1 byte in the cheksum */
     if (msglen <= 1) {
-        verbose (0, "parse_checksum: bad message size %d\n", (int)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_checksum: bad message size %d\n", (int)msglen);
     }
 
     *len = msglen;
@@ -1629,8 +1641,7 @@ int parse_checksum ( char *msgbuf, size_t msglen
 int parse_done (char *msgbuf, size_t msglen)
 {
     if (msglen != 0) {
-        verbose (0, "parse_done: bad size=%lld\n", (long long)msglen);
-        exit (exitcode_protocol_error);
+        exitmsg (exitcode_protocol_error, "parse_done: bad size=%lld\n", (long long)msglen);
     }
     verbose (1, "parse_done\n");
 
@@ -1772,8 +1783,7 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     fd = open (dev, flags);
 #endif
     if (fd == -1) {
-        verbose (0, "opendev [%s]: %s\n", dev, strerror (errno));
-        exit (exitcode_io_error);
+        exitmsg (exitcode_io_error, "opendev [%s]: %s\n", dev, strerror (errno));
     }
     devp = (struct dev *) malloc (sizeof (struct dev));
     
@@ -1785,6 +1795,12 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     verbose (1, "opendev: opened %s\n", dev);
 
     return devp;
+};
+
+void check_token (char *context, char *f, unsigned char token, unsigned char expect)
+{
+    if (token == expect) return;
+    exitmsg (exitcode_protocol_error, "%s: %sUnexpected token=%s, expected=%s\n", context, f, get_msgstring(token), get_msgstring(expect));
 };
 
 enum exitcode do_server (int zeroblocks)
@@ -1823,7 +1839,7 @@ enum exitcode do_server (int zeroblocks)
         get_rd_queue (NULL, &wr_queue, &rd_queue, -1, &token, &msg, &msglen, NULL);
 
         if (exp) {
-            if (token != exp) exit (exitcode_protocol_error);
+            check_token ("do_server", "", token, exp);
             exp = 0;
         }
 
@@ -1931,13 +1947,6 @@ int tcp_connect (char *host, char *service)
     return s;
 }
 
-void check_token (char *f, unsigned char token, unsigned char expect)
-{
-    if (token == expect) return;
-    verbose (0, "%sUnexpected token=%s, expected=%s\n", f, msgstring[token], msgstring[expect]);
-    exit (exitcode_protocol_error);
-};
-
 #define HSMALL  4096
 #define HLARGE  65536
 // #define HSMALL  32768
@@ -2044,7 +2053,7 @@ int hashmatch ( struct context *ctx
 
         if (token == msg_none) continue;
 
-        check_token ("", token, msg_hashes);
+        check_token ("hashmatch", "", token, msg_hashes);
         (*hashreqs)--;
 
         parse_hashes (hashsize, msg, msglen, &rstart, &rstep, &rnstep, &rhbuf, &rhint);
@@ -2181,19 +2190,19 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     char *hello   = NULL;
 
     get_rd_queue (&ctx, &wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL);
-    check_token ("", token, msg_hello);
+    check_token ("do_client", "", token, msg_hello);
     parse_hello (msg, msglen, &hello);
     send_devfile (&wr_queue, rdev);
     free (msg);
     free (hello);
 
     get_rd_queue (&ctx, &wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL);
-    check_token ("", token, msg_size);
+    check_token ("do_client", "", token, msg_size);
     parse_size (msg, msglen, &rdevsize);
     free (msg);
     if (rdevsize != devp->size) {
         if (diffsize & ds_warn) {
-            verbose (0, "Different sizes local=%lld remote=%lld\n", devp->size, rdevsize);
+            verbose (0, "WARNING: Different sizes local=%lld remote=%lld\n", devp->size, rdevsize);
         }
         switch (diffsize & ds_mask) {
         case ds_strict:
@@ -2247,7 +2256,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
         if (remdata) {
             send_getchecksum (&wr_queue);
             get_rd_queue (&ctx, &wr_queue, &rd_queue, fd_err, &token, &msg, &msglen, NULL);
-            check_token ("", token, msg_checksum);
+            check_token ("do_client", "", token, msg_checksum);
             parse_checksum (msg, msglen, &clen, &cbuf);
             free (msg);
         } else {
@@ -2284,7 +2293,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     send_done (&wr_queue);
     get_rd_queue (&ctx, &wr_queue, &rd_queue,  fd_err, &token, &msg, &msglen, NULL);
-    check_token ("", token, msg_done);
+    check_token ("do_client", "", token, msg_done);
     parse_done (msg, msglen);
     free (msg);
 
@@ -2310,36 +2319,31 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
     struct dev     *devp = NULL;
 
     if (!fgets (buf, bufsize - 1, stdin)) {
-        verbose (0, "do_patch: EOF(stdin)\n");
-        exit (exitcode_invalid_patch_format);
+        exitmsg (exitcode_invalid_patch_format, "do_patch: EOF(stdin)\n");
     }
     len = strlen (buf);
     if (buf[len-1] != '\n' || strncmp (buf, "BDSYNC ", 7)) {
-        verbose (0, "ERROR: Bad header\n");
-        exit (exitcode_invalid_patch_format);
+        exitmsg (exitcode_invalid_patch_format, "do_patch: Bad header\n");
     }
     if (len-1 != strlen (ARCHVER) || strncmp (buf, ARCHVER, len-1)) {
-        verbose (0, "ERROR: Bad archive version\n");
-        exit (exitcode_invalid_patch_format);
+        exitmsg (exitcode_invalid_patch_format, "Bad archive version\n");
     }
 
     if (   fread (&ndevsize, 1, sizeof (ndevsize), stdin) != sizeof (ndevsize)
         || fread (&devlen,   1, sizeof (devlen),   stdin) != sizeof (devlen)
         || devlen > 16384) {
-        verbose (0, "ERROR: Bad data (1)\n");
-        exit (exitcode_invalid_patch_format);
+        exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (devname len)\n");
     }
     devname = malloc (devlen + 1);
     if (fread (devname, 1, devlen, stdin) != devlen) {
-        verbose (0, "ERROR: Bad data (2)\n");
-        exit (exitcode_invalid_patch_format);
+        exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (devname)\n");
     }
     devname[devlen] = '\0';
     if (dev == NULL) {
         dev = devname;
     } else {
         if (warndev && strcmp (dev, devname)) {
-            verbose (0, "Warning: different device names parameter=%s data=%s\n", dev, devname);
+            verbose (0, "WARNING: Different device names parameter=%s data=%s\n", dev, devname);
         }
         free (devname);
     }
@@ -2348,7 +2352,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
 
     if (ndevsize != devp->size) {
         if (diffsize & ds_warn) {
-            verbose (0, "Different sizes current=%lld patch=%lld\n", devp->size, ndevsize);
+            verbose (0, "WARNING: Different sizes current=%lld patch=%lld\n", devp->size, ndevsize);
         }
         switch (diffsize & ds_mask) {
         case ds_strict:
@@ -2356,12 +2360,10 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             break;
         case ds_resize:
             if (ftruncate (devp->fd, ndevsize) != 0) {
-                verbose (0, "Cannot resize (ftruncate) device=%s\n", devname);
-                exit (exitcode_diffsize_mismatch);
+                exitmsg (exitcode_diffsize_mismatch, "do_patch: Cannot resize (ftruncate) device=%s\n", devname);
             }
             if (posix_fallocate (devp->fd, 0, ndevsize) != 0) {
-                verbose (0, "Cannot resize (posix_fallocate) device=%s\n", devname);
-                exit (exitcode_diffsize_mismatch);
+                exitmsg (exitcode_diffsize_mismatch, "do_patch: Cannot resize (posix_fallocate) device=%s\n", devname);
             }
             devp->size = ndevsize;
             break;
@@ -2377,8 +2379,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         if (   fread (&pos,  1, sizeof (pos),  stdin) != sizeof (pos)
             || fread (&blen, 1, sizeof (blen), stdin) != sizeof (blen)
             || blen < 0 || pos + blen > ndevsize) {
-            verbose (0, "Bad data (3)\n");
-            exit (exitcode_invalid_patch_format);
+            exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (3)\n");
         }
         if (pos == 0 && blen == 0) break;
 
@@ -2388,8 +2389,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             buf = malloc (bufsize);
         }
         if (fread (buf, 1, blen, stdin) != blen) {
-            verbose (0, "Bad data\n");
-            exit (exitcode_invalid_patch_format);
+            exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data\n");
         }
         verbose (3, "do_patch: write 1: pos=%lld len=%d\n", (long long)pos, blen);
 
@@ -2401,8 +2401,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
 
         verbose (2, "do_patch: write 2: pos=%lld len=%d\n", (long long)pos, blen);
         if (pwrite (devp->fd, buf, blen, pos) != blen) {
-            verbose (0, "Write error: pos=%lld len=%d\n", (long long)pos, blen);
-            exit (exitcode_write_error);
+            exitmsg (exitcode_write_error, "do_patch: Write error: pos=%lld len=%d\n", (long long)pos, blen);
         }
     }
 
@@ -2411,27 +2410,23 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         int clen;
 
         if ((fread (&c, 1, sizeof (c), stdin) != 1) || (c > 127)) {
-            verbose (0, "Bad data\n");
-            exit (exitcode_invalid_patch_format);
+            exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (checksum len)\n");
         }
         if (c != 0) {
             clen = c;
             char *checksum = malloc (clen + 1);
             if (fread (checksum, 1, clen, stdin) != clen) {
-                verbose (0, "Bad data\n");
-                exit (exitcode_invalid_patch_format);
+                exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (checksum)\n");
             }
             checksum[clen] = '\0';
 
             if ((fread (&c, 1, sizeof (c), stdin) != 1) || (c > 127)) {
-                verbose (0, "Bad data\n");
-                exit (exitcode_invalid_patch_format);
+                exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (checksum data len)\n");
             }
             clen = c;
             unsigned char *cval = malloc (clen);
             if (fread (cval, 1, clen, stdin) != clen) {
-                verbose (0, "Bad data\n");
-                exit (exitcode_invalid_patch_format);
+                exitmsg (exitcode_invalid_patch_format, "do_patch: Bad data (checksum data)\n");
             }
 
             char *tmp = bytes2str (clen, cval);
@@ -2466,8 +2461,7 @@ static int parse_diffsize (int diffsize, char *options)
     char *cp, *np;
 
     if (diffsize != ds_none) {
-        fprintf (stderr, "double diffsize specification\n");
-        return -1;
+        exitmsg (exitcode_invalid_params, "parse_diffsize: double diffsize specification\n");
     }
     if (options == NULL) return ds_resize;
 
@@ -2482,12 +2476,10 @@ static int parse_diffsize (int diffsize, char *options)
             if (!strncmp (cp, mp->string, np - cp)) break;
         }
         if (mp->string == NULL) {
-            fprintf (stderr, "bad diffsize options %s\n", options);
-            return -1;
+            exitmsg (exitcode_invalid_params, "bad diffsize options %s\n", optarg);
         }
         if (mp->id != ds_warn && (diffsize & ds_mask)) {
-            fprintf (stderr, "contradictive diffsize %d options %s\n", diffsize, options);
-            return -1;
+            exitmsg (exitcode_invalid_params, "contradictive diffsize %d options %s\n", diffsize, options);
         }
         diffsize |= mp->id;
         cp = (*np == ',' ? np + 1 : np);
@@ -2549,6 +2541,8 @@ int main (int argc, char *argv[])
 	return 0;
     }
 
+    vhandler = verbose_printf;
+
     for (;;) {
         int option_index = 0;
         int c;
@@ -2573,10 +2567,7 @@ int main (int argc, char *argv[])
             break;
         case 'b':
             blocksize = strtol (optarg, &cp, 10);
-            if (cp == optarg || *cp != '\0') {
-                fprintf (stderr, "bad number %s\n", optarg);
-                return exitcode_invalid_params;
-            }
+            if (cp == optarg || *cp != '\0') exitmsg (exitcode_invalid_params, "bad number %s\n", optarg);
             break;
         case 'h':
             hash = optarg;
@@ -2595,7 +2586,7 @@ int main (int argc, char *argv[])
             break;
         case 'd':
             diffsize = parse_diffsize (diffsize, optarg);
-            if (diffsize == -1) return exitcode_invalid_params;
+            if (diffsize == -1) exitmsg (exitcode_invalid_params, "bad diffsize options %s\n", optarg);
             break;
         case 'z':
             zeroblocks = 1;
@@ -2608,10 +2599,7 @@ int main (int argc, char *argv[])
             break;
         case 'P':
             if (optarg) {
-                if (strcmp (optarg, "noscroll")) {
-                    fprintf (stderr, "bad progress option %s\n", optarg);
-                    return exitcode_invalid_params;
-                }
+                if (strcmp (optarg, "noscroll")) exitmsg (exitcode_invalid_params, "bad progress option %s\n", optarg);
             }
             progress = (optarg ? '\r' : '\n');
             break;
@@ -2621,10 +2609,9 @@ int main (int argc, char *argv[])
             break;
         case '?':
             show_usage (stderr);
-            return exitcode_invalid_params;
+            exit (exitcode_invalid_params);
         }
     }
-    vhandler = verbose_printf;
 
     switch (diffsize & ds_mask) {
     case ds_none:
@@ -2638,33 +2625,27 @@ int main (int argc, char *argv[])
     hlarge = (twopass ? 64 * hsmall : hsmall);
 
     if (isserver && ispatch) {
-        fprintf (stderr, "Contradictive options --server and --patch\n");
-        exit (exitcode_invalid_params);
+        exitmsg (exitcode_invalid_params, "Contradictive options --server and --patch\n");
     }
 
     if (checksum && (strlen (checksum) > 127)) {
-        verbose (0, "paramater too long for option --checksum\n");
-        exit (exitcode_invalid_params);
+        exitmsg (exitcode_invalid_params, "paramater too long for option --checksum\n");
     }
 
     if (warndev && !ispatch) {
-        fprintf (stderr, "Options --warndev only valid with --patch\n");
-        exit (exitcode_invalid_params);
+        exitmsg (exitcode_invalid_params, "Options --warndev only valid with --patch\n");
     }
 
     if (zeroblocks && ispatch) {
-        fprintf (stderr, "Contradictive options --zeroblocks and --patch\n");
-        exit (exitcode_invalid_params);
+        exitmsg (exitcode_invalid_params, "Contradictive options --zeroblocks and --patch\n");
     }
 
     if (ispatch || isserver) {
         if (hash) {
-            fprintf (stderr, "Contradictive options --hash and --%s\n", (isserver ? "server" : "patch"));
-            exit (exitcode_invalid_params);
+            exitmsg (exitcode_invalid_params, "Contradictive options --hash and --%s\n", (isserver ? "server" : "patch"));
         }
         if (checksum) {
-            fprintf (stderr, "Contradictive options --checksum and --%s\n", (isserver ? "server" : "patch"));
-            exit (exitcode_invalid_params);
+            exitmsg (exitcode_invalid_params, "Contradictive options --checksum and --%s\n", (isserver ? "server" : "patch"));
         }
     }
 
@@ -2677,7 +2658,7 @@ int main (int argc, char *argv[])
     switch (mode) {
     case mode_patch:
         if (optind != argc) {
-            verbose (0, "Bad number of arguments %d\n", argc - optind);
+            exitmsg (exitcode_invalid_params, "Bad number of arguments %d\n", argc - optind);
             return exitcode_invalid_params;
         }
         retval = do_patch (patchdev, warndev, diffsize);
@@ -2685,15 +2666,13 @@ int main (int argc, char *argv[])
     case mode_server:
         vhandler = verbose_syslog;
         if (optind != argc) {
-            verbose (0, "Bad number of arguments %d\n", argc - optind);
-            return exitcode_invalid_params;
+            exitmsg (exitcode_invalid_params, "Bad number of arguments %d\n", argc - optind);
         }
         retval = do_server (zeroblocks);
         break;
     case mode_client:
         if (optind != argc - 3) {
-            verbose (0, "Bad number of arguments %d\n", argc - optind);
-            return exitcode_invalid_params;
+            exitmsg (exitcode_invalid_params, "Bad number of arguments %d\n", argc - optind);
         }
 
         if (!hash) hash = "md5";
