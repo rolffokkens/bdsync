@@ -14,7 +14,7 @@ Patch: **bdsync** --patch[=DSTDEV] [--verbose]
 
 # DESCRIPTION
 
-Bdsync is like "rsync" but it can operate on block devices, transmitting
+Bdsync is like "rsync" but it can operate on block devices, transferring
 only the changed blocks, to synchronize block devices over a network.
 It generates a "binary patchfile" in an efficient way by comparing checksums
 of blocks of the local block device LOCDEV and the remote block device REMDEV.
@@ -129,13 +129,18 @@ level.
 
 Bdsync can be initiated like this in its most simple form:
 
-> bdsync "bdsync -s" **`/dev/LOCDEV`\*\***`/dev/REMDEV`** > **DEV.bdsync\*\*
+```
+bdsync "bdsync -s" /dev/LOCDEV /dev/REMDEV > DEV.bdsync
+```
 
 This generates a patchfile **DEV.bdsync** containing the blocks in the
 **/dev/LOCDEV** device that differ from the blocks in the **/dev/REMDEV**
 device which both are local. A more realistic example is this:
 
-> bdsync "ssh **doe**\@**remote** bdsync --server" **/dev/LOCDEV** > **/dev/REMDEV** | gzip > **DEV.bdsync.gz**
+```
+bdsync "ssh doe@remote bdsync --server" /dev/LOCDEV > /dev/REMDEV \
+| gzip > DEV.bdsync.gz
+```
 
 When run as **john** at **local** the bdsync client makes an ssh connection to
 **remote** as user **doe** and executes a bdsync server by passing it the
@@ -146,29 +151,31 @@ contains all blocks in **/dev/LOCDEV** at local that differ from
 
 On the remote machine remote the user doe can apply the patch by executing:
 
-> gzip -d < **DEV.bdsync.gz** | bdsync --patch=**/dev/REMDEV**
+```
+gzip -d < DEV.bdsync.gz | bdsync --patch=/dev/REMDEV
+```
 
 The reason to use a binary patch file instead of instantly patching the remote
 block device REMDEV is twofold:
 
-A more complex example of transmitting without the intermediate storage:
-
-```
-bdsync --diffsize=resize --zeroblocks --flushcache --progress "ssh USER@HOST bdsync --server" SRCFILE DSTFILE \
-  | ssh USER@HOST bdsync --patch=DSTFILE --diffsize --flushcache
-
-```
-
-The above command pipes the resulting patch directly to the remote server to
-apply. A compression step could be included in there such as using "zstd",
-or by passing "-C" to the second SSH command.
-
-- Sending over a complete patchfile allows to synchronize in a consistent way
+- Transferring a complete patchfile allows to synchronize in a consistent way
   in case of an interruption (powerloss, network malfunction) since you can
   choose to apply the (complete) patchfile or not.
 
 - Compression of the patchfile can easily be done, without introducing
   complexity in bdsync itself.
+
+A more complex example of transferring without the intermediate storage:
+
+```
+bdsync --diffsize=resize --zeroblocks --flushcache --progress \
+"ssh doe@remote bdsync --server" /dev/LOCDEV /dev/REMDEV \
+| ssh doe@remote bdsync  --diffsize --flushcache --patch
+```
+
+The above command pipes the resulting patch directly to the remote server to
+apply. A compression step could be included in there such as using "zstd",
+or by passing "-C" to the second SSH command.
 
 # EXIT STATUS
 
