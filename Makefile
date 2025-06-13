@@ -25,4 +25,4 @@ test: bdsync
 	./tests.sh
 
 clean:
-	rm -f bdsync bdsync.txt.2 bdsync.1
+	rm -f bdsync bdsync.txt.2
