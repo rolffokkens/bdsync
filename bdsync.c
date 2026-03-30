@@ -18,6 +18,10 @@
 // * 0.7 Jul 31 2013 Rolf Fokkens <rolf@rolffokkens.nl>
 // - option to generate a checksum for the source data
 // - options to choose digests
+// * 0.8 Mar 30 2026 Harald Kapper <hk@kapper.net>
+// - compiler warnings for older systems handled by 
+// - add POSIX/XSI pread/pwrite (_XOPEN_SOURCE)
+// - add GNU/BSD-ish interface for vsyslog and bcmp (_GNU_SOURCE)
 //
 
 // Brief protocol notes:
@@ -46,6 +50,8 @@
 // Server: msg_done
 //
 
+#define _XOPEN_SOURCE 700
+#define _GNU_SOURCE
 #define _LARGEFILE64_SOURCE
 #define _FILE_OFFSET_BITS 64
 
