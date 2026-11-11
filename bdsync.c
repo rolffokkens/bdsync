@@ -1825,7 +1825,7 @@ enum exitcode do_server (int zeroblocks)
     int  goon = 1;
 
     while (goon) {
-        flush_wr_queue (&wr_queue, 0);
+        flush_wr_queue (&wr_queue, wr_queue.len >= MAXWRQUEUE);
         get_rd_queue (NULL, &wr_queue, &rd_queue, -1, &token, &msg, &msglen, NULL);
 
         if (exp) {
