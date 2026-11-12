@@ -1824,7 +1824,7 @@ enum exitcode do_server (int zeroblocks)
     struct           wr_queue wr_queue;
     struct           rd_queue rd_queue;
     hash_alg         dg_md = hash_null;
-    struct cs_state  *cs_state;
+    struct cs_state  *cs_state = NULL;
     char             *dg_nm = NULL;
     struct zero_hash *zh;
     struct dev       *devp = NULL;
@@ -1841,6 +1841,7 @@ enum exitcode do_server (int zeroblocks)
 
     int  exp  = msg_hello;
     int  goon = 1;
+    int  digests_seen = 0;
 
     while (goon) {
         flush_wr_queue (&wr_queue, wr_queue.len >= MAXWRQUEUE);
@@ -1858,16 +1859,28 @@ enum exitcode do_server (int zeroblocks)
             free (hello);
             break;
         case msg_devfile:
+            if (devp) {
+                verbose (0, "msg_devfile: received twice\n");
+                exit (exitcode_protocol_error);
+            }
             parse_devfile (msg, msglen, &devfile);
             devp = opendev (devfile, O_RDONLY, 0);
             send_size (&wr_queue, devp->size);
             free (devfile);
             break;
         case msg_digests:
-            /* assert (salt == NULL) */
+            if (!devp || digests_seen) {
+                verbose (0, "msg_digests: unexpected\n");
+                exit (exitcode_protocol_error);
+            }
             parse_digests (msg, msglen, &saltsize, &salt, &dg_nm, &dg_md, &cs_state);
+            digests_seen = 1;
             break;
         case msg_gethashes:
+            if (!devp || !digests_seen) {
+                verbose (0, "msg_gethashes: received before msg_digests\n");
+                exit (exitcode_protocol_error);
+            }
             parse_gethashes (msg, msglen, &start, &step, &nstep, &hint);
             if (!hint) {
                 int hs = hash_getsize (dg_md);
