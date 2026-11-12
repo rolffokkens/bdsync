@@ -2451,10 +2451,11 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
     for (;;) {
         off_t          pos;
         unsigned short blen;
+        off_t          wlen;
 
         if (   fread (&pos,  1, sizeof (pos),  stdin) != sizeof (pos)
             || fread (&blen, 1, sizeof (blen), stdin) != sizeof (blen)
-            || blen < 0 || pos + blen > ndevsize) {
+            || pos < 0 || pos + blen > ndevsize) {
             verbose (0, "Bad data (3)\n");
             exit (exitcode_invalid_patch_format);
         }
@@ -2471,15 +2472,15 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         }
         verbose (3, "do_patch: write 1: pos=%lld len=%d\n", (long long)pos, blen);
 
-        if (pos + blen > devp->size) {
-            /* optional check for ds_minsize here? */
-            blen = devp->size - pos;
+        wlen = blen;
+        if (pos + wlen > devp->size) {
+            /* ds_minsize: the target device may be smaller than the patch */
+            wlen = devp->size - pos;
+            if (wlen <= 0) continue;
         }
-        if (blen <= 0) continue;
-
-        verbose (2, "do_patch: write 2: pos=%lld len=%d\n", (long long)pos, blen);
-        if (pwrite (devp->fd, buf, blen, pos) != blen) {
-            verbose (0, "Write error: pos=%lld len=%d\n", (long long)pos, blen);
+        verbose (2, "do_patch: write 2: pos=%lld len=%lld\n", (long long)pos, (long long)wlen);
+        if (pwrite (devp->fd, buf, wlen, pos) != wlen) {
+            verbose (0, "Write error: pos=%lld len=%lld\n", (long long)pos, (long long)wlen);
             exit (exitcode_write_error);
         }
     }
