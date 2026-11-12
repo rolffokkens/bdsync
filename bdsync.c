@@ -997,8 +997,10 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
         pfd[2].fd     = fd_err;
         pfd[2].events = POLLIN;
+        pfd[2].revents = 0;
 
         nfd = (pwr_queue->state == qeof ? 1 : 2);
+        if (fd_err >= 0) nfd = 3;
         tmp = poll (pfd, nfd, -1);
 
         verbose (3, "get_rd_queue: poll %d\n", tmp);
