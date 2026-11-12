@@ -743,12 +743,18 @@ static char *hintstring[] = {
 ,  "relpos"
 };
 
+/* Peer supplied tokens must be range checked before indexing msgstring[] */
+static const char *msgname (unsigned char token)
+{
+    return (token < msg_max ? msgstring[token] : "(unknown)");
+};
+
 int msg_write (int fd, unsigned char token, char *buf, size_t len)
 {
     u_int32_t tmp = len + 1;
     char      tbuf[sizeof (tmp)];
 
-    verbose (2, "msg_write: msg = %s, len = %d\n", msgstring[token], len);
+    verbose (2, "msg_write: msg = %s, len = %d\n", msgname(token), len);
 
     if (write (fd, int2char (tbuf, tmp, sizeof (tmp)), sizeof (tmp)) != sizeof (tmp)) {
         exit (exitcode_write_error);
@@ -767,7 +773,7 @@ int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_
 {
     struct msg *pmsg;
 
-    verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgstring[token], len);
+    verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgname(token), len);
 
     if (pqueue->state == qeof) {
         verbose (0, "add_wr_queue: EOF\n");
@@ -816,7 +822,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(phd->data[0])], phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgname((unsigned char)(phd->data[0])), phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -896,7 +902,7 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
             len = pmsg->len - pqueue->pos;
             if (len == 0) {
                 /* Full message present */
-                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgstring[(unsigned char)(pmsg->data[0])], (int)pmsg->len - 1);
+                verbose (3, "fill_rd_queue: msg = %s, len = %d\n", msgname((unsigned char)(pmsg->data[0])), (int)pmsg->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
@@ -1054,7 +1060,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
     free (phd);
 
-    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgstring[*token], *msglen);
+    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgname(*token), *msglen);
 
     return 1;
 }
@@ -1343,7 +1349,7 @@ int msg_read (int fd, char **buf, size_t *buflen, unsigned char *token, char **m
     }
 
 
-    verbose (2, "msg_read: msg = %s, len = %d\n", msgstring[*token], (int)tmp - 1);
+    verbose (2, "msg_read: msg = %s, len = %d\n", msgname(*token), (int)tmp - 1);
 
     return 0;
 };
@@ -1942,7 +1948,7 @@ int tcp_connect (char *host, char *service)
 void check_token (char *f, unsigned char token, unsigned char expect)
 {
     if (token == expect) return;
-    verbose (0, "%sUnexpected token=%s, expected=%s\n", f, msgstring[token], msgstring[expect]);
+    verbose (0, "%sUnexpected token=%s, expected=%s\n", f, msgname(token), msgname(expect));
     exit (exitcode_protocol_error);
 };
 
