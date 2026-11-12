@@ -2942,7 +2942,7 @@ int main (int argc, char *argv[])
             return exitcode_invalid_params;
         }
 
-        if (!hash) hash = "md5";
+        if (!hash) hash = "sha256";
 
         retval = do_client (hash, checksum, argv[optind], argv[optind + 1],argv[optind + 2], hlarge, hsmall, remdata, fixedsalt, diffsize, zeroblocks, flushcache, progress);
         break;

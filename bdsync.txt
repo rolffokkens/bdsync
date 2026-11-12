@@ -13,7 +13,7 @@ OPTIONS:
 --patch[=DEVICE]      Apply a bdsync file read from standard input.
 --warndev             Warn if the specified device differs.
 --verbose             Increase the verbosity.
---hash=DIGEST         Specify a hash to match blocks, default is md5.
+--hash=DIGEST         Specify a hash to match blocks, default is sha256.
 --blocksize=BLOCKSIZE Specify the block size, default is 4096
 --checksum=DIGEST     Specify the checksum digest for LOCDEV, default is none.
 --twopass             Match blocks in two passes
