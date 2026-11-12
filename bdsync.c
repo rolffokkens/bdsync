@@ -2393,7 +2393,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         exit (exitcode_invalid_patch_format);
     }
     len = strlen (buf);
-    if (buf[len-1] != '\n' || strncmp (buf, "BDSYNC ", 7)) {
+    if (len == 0 || buf[len-1] != '\n' || strncmp (buf, "BDSYNC ", 7)) {
         verbose (0, "ERROR: Bad header\n");
         exit (exitcode_invalid_patch_format);
     }
