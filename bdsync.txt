@@ -22,4 +22,7 @@ OPTIONS:
 --zeroblocks          Optimize for zero-filled blocks
 --flushcache          Actively flush OS buffer cache
 --progress            Report progress during operation
+--allow=PATTERN       Server only: only serve files matching PATTERN
+                      (fnmatch, repeatable). Without --allow the server
+                      serves any file the client requests.
 --help                Show this help

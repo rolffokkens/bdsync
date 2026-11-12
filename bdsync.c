@@ -74,6 +74,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <sys/wait.h>
+#include <fnmatch.h>
 #ifdef DBG_MTRACE
 # include <mcheck.h>
 #endif
@@ -1883,7 +1884,22 @@ struct dev *opendev (char *dev, int flags, int flushcache)
     return devp;
 };
 
-enum exitcode do_server (int zeroblocks)
+/* --allow patterns for the server: reject files the client asks for
+   that do not match any of them.                                     */
+static int path_allowed (char **allow, const char *path)
+{
+    int i;
+
+    if (allow == NULL) return 1;
+
+    for (i = 0; allow[i] != NULL; i++) {
+        if (!fnmatch (allow[i], path, 0)) return 1;
+    }
+
+    return 0;
+}
+
+enum exitcode do_server (int zeroblocks, char **allow)
 {
     char             *msg;
     size_t           msglen;
@@ -1905,6 +1921,10 @@ enum exitcode do_server (int zeroblocks)
     init_rd_queue (&rd_queue, STDIN_FILENO);
 
     verbose (1, "started\n");
+
+    if (allow == NULL) {
+        verbose (1, "no --allow pattern: the client can request any file\n");
+    }
 
     send_hello (&wr_queue, "SERVER");
 
@@ -1936,6 +1956,12 @@ enum exitcode do_server (int zeroblocks)
                 exit (exitcode_protocol_error);
             }
             parse_devfile (msg, msglen, &devfile);
+            if (!path_allowed (allow, devfile)) {
+                char *tmp = printable (devfile);
+                verbose (0, "msg_devfile: %s not allowed by --allow\n", tmp);
+                free (tmp);
+                exit (exitcode_protocol_error);
+            }
             devp = opendev (devfile, O_RDONLY, 0);
             send_size (&wr_queue, devp->size);
             free (devfile);
@@ -2720,6 +2746,7 @@ static struct option long_options[] = {
     , {"warndev",    no_argument,       0, 'w' }
     , {"flushcache", no_argument,       0, 'F' }
     , {"progress",   optional_argument, 0, 'P' }
+    , {"allow",      required_argument, 0, 'A' }
     , {"help",       no_argument,       0, 'H' }
     , {0,            0,                 0,  0  }
 };
@@ -2748,6 +2775,8 @@ int main (int argc, char *argv[])
     char  *patchdev  = NULL;
     char  *hash      = NULL;
     char  *checksum  = NULL;
+    char **allow     = NULL;
+    int    nallow    = 0;
     char  *cp;
 
     update_time ();
@@ -2823,6 +2852,15 @@ int main (int argc, char *argv[])
             }
             progress = (optarg ? '\r' : '\n');
             break;
+        case 'A':
+            allow = realloc (allow, (nallow + 2) * sizeof (*allow));
+            if (!allow) {
+                fprintf (stderr, "out of memory\n");
+                return exitcode_io_error;
+            }
+            allow[nallow++] = optarg;
+            allow[nallow]   = NULL;
+            break;
         case 'H':
             show_usage (stdout);
 	    return 0;
@@ -2896,7 +2934,7 @@ int main (int argc, char *argv[])
             verbose (0, "Bad number of arguments %d\n", argc - optind);
             return exitcode_invalid_params;
         }
-        retval = do_server (zeroblocks);
+        retval = do_server (zeroblocks, allow);
         break;
     case mode_client:
         if (optind != argc - 3) {
