@@ -2111,6 +2111,17 @@ int hashmatch ( struct context *ctx
             continue;
         }
 
+        /* A reply can only answer one of our requests: the step must be
+           one of the two steps we request hashes for and the start must
+           be within the devices being compared. Anything else could send
+           the loops below past the end of the device.                   */
+        if (   (rstep != hashstep && rstep != nextstep)
+            || rstart < 0 || rstart >= mdevsize) {
+            verbose (0, "hashmatch: bad reply start=%lld step=%lld nstep=%d\n"
+                      , (long long)rstart, (long long)rstep, rnstep);
+            exit (exitcode_protocol_error);
+        }
+
         zh = (zeroblocks ? find_zero_hash (dg_nm, rstep, saltsize, salt) : NULL);
         /* Generate our own list of hashes */
         gen_hashes ( ctx, dg_md, zh, (rstep == hashstep ? cs_state : NULL)
@@ -2122,11 +2133,11 @@ int hashmatch ( struct context *ctx
         int           ns = rnstep;
 
         while (ns--) {
-            if (bcmp (lp, rp, hashsize)) {
-                off_t tend = pos + rstep;
+            off_t tend = pos + rstep;
 
-                if (tend > mdevsize) tend = mdevsize;
+            if (tend > mdevsize) tend = mdevsize;
 
+            if (tend > pos && bcmp (lp, rp, hashsize)) {
                 if (rstep == nextstep) {
                     /* HSMALL? Then write the data */
                     off_t          len   = tend - pos;
