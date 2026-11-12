@@ -367,7 +367,14 @@ hash_ctx _init_cs (const char *checksum, int *hs)
     md  = hash_getbyname (checksum);
 
     if (!md) {
-        verbose (0, "Bad checksum %s\n", checksum);
+        char tmp[128], *tp;
+
+        strncpy (tmp, checksum, sizeof (tmp) - 1);
+        tmp[sizeof (tmp) - 1] = '\0';
+        for (tp = tmp; *tp; tp++) {
+            if (!isprint ((unsigned char) *tp)) *tp = '.';
+        }
+        verbose (0, "Bad checksum %s\n", tmp);
         exit (exitcode_checksum_error);
     }
 
@@ -400,6 +407,19 @@ char *xstrdup (const char *s)
 
     if (!p) exitmsg (exitcode_io_error, "out of memory\n");
     return p;
+}
+
+/* strings received from the peer or a patch file must not contain
+   terminal control sequences: replace them for printing purposes.   */
+char *printable (const char *s)
+{
+    char *p, *ret = xstrdup (s ? s : "");
+
+    for (p = ret; *p; p++) {
+        if (!isprint ((unsigned char) *p)) *p = '.';
+    }
+
+    return ret;
 }
 
 static struct zero_hash *pzeroes      = NULL;
@@ -1414,7 +1434,11 @@ int parse_devfile (char *msgbuf, size_t msglen, char **devfile)
 
     ret = parse_msgstring (msgbuf, msglen, devfile, 2);
 
-    verbose (1, "parse_devfile: devfile = %s\n", *devfile);
+    {
+        char *tmp = printable (*devfile);
+        verbose (1, "parse_devfile: devfile = %s\n", tmp);
+        free (tmp);
+    }
 
     return ret;
 };
@@ -1428,17 +1452,25 @@ int parse_hello (char *msgbuf, size_t msglen, char **hello)
 
     p = strchr (*hello, ' ');
     if (p == NULL) {
-        verbose (0, "parse_hello: Missing protocol version '%s'\n", *hello);
+        char *tmp = printable (*hello);
+        verbose (0, "parse_hello: Missing protocol version '%s'\n", tmp);
+        free (tmp);
         exit (exitcode_protocol_error);
     }
 
     if (strcmp (p + 1, PROTOVER)) {
-        verbose (0, "parse_hello: Bad protocol version %s\n", p + 1);
+        char *tmp = printable (p + 1);
+        verbose (0, "parse_hello: Bad protocol version %s\n", tmp);
+        free (tmp);
         exit (exitcode_protocol_error);
     }
     *p = '\0';
 
-    verbose (1, "parse_hello: hello = %s, version = %s\n", *hello, p + 1);
+    {
+        char *tmp = printable (*hello);
+        verbose (1, "parse_hello: hello = %s, version = %s\n", tmp, p + 1);
+        free (tmp);
+    }
 
     return ret;
 };
@@ -1504,17 +1536,23 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
     *dg_md = hash_getbyname (digest);
 
     if (!*dg_md) {
-        verbose (0, "parse_digests: bad digest %s\n", digest);
+        char *tmp = printable (digest);
+        verbose (0, "parse_digests: bad digest %s\n", tmp);
+        free (tmp);
         exit (exitcode_digest_error);
     }
 
     *cs_state = (*checksum != '\0' ? init_checksum (checksum) : NULL);
 
     if (isverbose >= 1) {
-        char *tmp = bytes2str (*saltsize, *salt);
+        char *tmp  = bytes2str (*saltsize, *salt);
+        char *tmp1 = printable (digest);
+        char *tmp2 = printable (*checksum == '\0' ? "(none)" : checksum);
         verbose (1, "parse_digests: salt = %s, digest = %s checksum = %s\n"
-                , tmp, digest, (*checksum == '\0' ? "(none)" : checksum));
+                , tmp, tmp1, tmp2);
         free (tmp);
+        free (tmp1);
+        free (tmp2);
     }
 
     return 0;
@@ -2452,7 +2490,9 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         dev = devname;
     } else {
         if (warndev && strcmp (dev, devname)) {
-            verbose (0, "Warning: different device names parameter=%s data=%s\n", dev, devname);
+            char *tmp = printable (devname);
+            verbose (0, "Warning: different device names parameter=%s data=%s\n", dev, tmp);
+            free (tmp);
         }
         free (devname);
     }
@@ -2601,8 +2641,10 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             }
 
             char *tmp = bytes2str (clen, cval);
-            verbose (0, "checksum[%s]: %s%s\n", checksum, tmp, vstat);
+            char *prn = printable (checksum);
+            verbose (0, "checksum[%s]: %s%s\n", prn, tmp, vstat);
             free (tmp);
+            free (prn);
 
             free (checksum);
             free (cval);
