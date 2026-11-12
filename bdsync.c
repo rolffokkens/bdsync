@@ -1696,12 +1696,12 @@ void print_progress (struct context *ctx, int progress, off_t pos)
     int      rt, crlf;
 
     if (progress && ctx) {
-        int stat_pct = pos * 100 / ctx->stat_size;
+        int stat_pct = (ctx->stat_size > 0 ? (int)((unsigned long long)pos * 100ULL / (unsigned long long)ctx->stat_size) : 100);
 
         if (stat_pct != ctx->stat_pct || ctx->progr_tv.tv_sec != wall_time.tv_sec) {
             dt = (wall_time.tv_sec - ctx->start_tv.tv_sec) * 1000000 + (wall_time.tv_usec - ctx->start_tv.tv_usec);
             ctx->progr_tv = wall_time;
-            rt = pos * 1000 / dt;
+            rt = (dt > 0 ? (int)((unsigned long long)pos * 1000ULL / dt) : 0);
 
             fprintf (stderr, "PROGRESS:%03d%%,%lld,%lld,%lld,", stat_pct, (long long) ctx->stat_diffttl, (long long) pos, (long long) ctx->stat_size);
             crlf = (char)progress;
