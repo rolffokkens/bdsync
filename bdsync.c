@@ -573,8 +573,12 @@ int init_salt (int saltsize, unsigned char *salt, int fixedsalt)
     } else {
         int fd = open("/dev/urandom", O_RDONLY);
 
+        if (fd < 0) {
+            exitmsg (exitcode_source_randomness_error, "init_salt: open(/dev/urandom): %s\n", strerror (errno));
+        }
+
         if (read (fd, salt, saltsize) != saltsize) {
-            exitmsg (exitcode_source_randomness_error, "piped_child: %s\n", strerror (errno));
+            exitmsg (exitcode_source_randomness_error, "init_salt: read(/dev/urandom): %s\n", strerror (errno));
         }
 
         close(fd);
