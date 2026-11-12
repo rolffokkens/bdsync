@@ -873,7 +873,9 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
             if (len == 0) {
                 struct msg *pmsg;
                 len = char2int ((char *)pqueue->tlen, sizeof (pqueue->tlen));
-                if (len > MSGMAX) {
+                if (len < 1 || len > MSGMAX) {
+                    /* A message always carries at least the token byte; */
+                    /* a zero length would underflow "len - 1" later on  */
                     verbose (0, "fill_rd_queue: bad msg size %d\n", (int)len);
                     exit (exitcode_read_error);
                 }
