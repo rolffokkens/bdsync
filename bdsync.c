@@ -815,7 +815,7 @@ int msg_write (int fd, unsigned char token, char *buf, size_t len)
     u_int32_t tmp = len + 1;
     char      tbuf[sizeof (tmp)];
 
-    verbose (2, "msg_write: msg = %s, len = %d\n", msgname(token), len);
+    verbose (2, "msg_write: msg = %s, len = %d\n", msgname(token), (int)len);
 
     if (write (fd, int2char (tbuf, tmp, sizeof (tmp)), sizeof (tmp)) != sizeof (tmp)) {
         exit (exitcode_write_error);
@@ -834,7 +834,7 @@ int add_wr_queue (struct wr_queue *pqueue, unsigned char token, char *buf, size_
 {
     struct msg *pmsg;
 
-    verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgname(token), len);
+    verbose (2, "add_wr_queue: msg = %s, len = %d\n", msgname(token), (int)len);
 
     if (pqueue->state == qeof) {
         verbose (0, "add_wr_queue: EOF\n");
@@ -883,7 +883,7 @@ int flush_wr_queue (struct wr_queue *pqueue, int wait)
         } else {
             len = phd->len - pqueue->pos;
             if (len == 0) {
-                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgname((unsigned char)(phd->data[0])), phd->len - 1);
+                verbose (3, "flush_wr_queue: msg = %s, len = %d\n", msgname((unsigned char)(phd->data[0])), (int)phd->len - 1);
 
                 pqueue->state = qhdr;
                 pqueue->pos   = 0;
