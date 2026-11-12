@@ -2385,6 +2385,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
     char           *buf = malloc (bufsize);
     unsigned short devlen;
     char           *devname;
+    int            resized = 0;
     struct dev     *devp = NULL;
 
     if (!fgets (buf, bufsize - 1, stdin)) {
@@ -2442,6 +2443,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
                 exit (exitcode_diffsize_mismatch);
             }
             devp->size = ndevsize;
+            resized    = 1;
             break;
         case ds_minsize:
             break;
@@ -2513,8 +2515,59 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
                 exit (exitcode_invalid_patch_format);
             }
 
+            const char *vstat = "";
+
+            /* Verify the checksum against the device we just patched.
+               The checksum was computed over the max of both device
+               sizes at generation time; only when the target size
+               equals the size stored in the patch and we did not have
+               to resize can we recompute it exactly.                    */
+            if (!resized && devp->size == ndevsize) {
+                int      hs;
+                hash_ctx ctx = _init_cs (checksum, &hs);
+                char     *rbuf = malloc (65536);
+                off_t    pos = 0;
+
+                if ((int) clen != hs) {
+                    exitmsg (exitcode_checksum_error
+                            , "Checksum size %d does not match %s (%d)\n"
+                            , clen, checksum, hs);
+                }
+
+                while (pos < devp->size) {
+                    off_t rlen = devp->size - pos;
+                    if (rlen > 65536) rlen = 65536;
+
+                    if (vpread (devp, rbuf, rlen, pos) != rlen) {
+                        exitmsg (exitcode_checksum_error
+                                , "Cannot read device for checksum: pos=%lld\n"
+                                , (long long)pos);
+                    }
+
+                    hash_update (ctx, rbuf, rlen);
+                    pos += rlen;
+                }
+
+                free (rbuf);
+
+                unsigned char ccal[hs];
+                hash_finish (ctx, ccal);
+
+                if (bcmp (ccal, cval, hs) != 0) {
+                    char *act = bytes2str (hs, ccal);
+                    char *exp = bytes2str (clen, cval);
+                    exitmsg (exitcode_checksum_error
+                            , "Checksum mismatch: expected=%s actual=%s\n"
+                            , exp, act);
+                }
+
+                vstat = " (verified)";
+            } else {
+                vstat = " (not verified)";
+            }
+
             char *tmp = bytes2str (clen, cval);
-            verbose (0, "checksum[%s]: %s\n", checksum, tmp);
+            verbose (0, "checksum[%s]: %s%s\n", checksum, tmp, vstat);
             free (tmp);
 
             free (checksum);
