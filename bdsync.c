@@ -1438,16 +1438,14 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
         exit (exitcode_protocol_error);
     }
 
-    *saltsize = (int)(*msgbuf++);
-    if (msglen < *saltsize + 1) {
-        if (msglen < 1) {
-            verbose (0, "parse_digests: bad size=%lld, salt size = %d\n", (long long)msglen, *saltsize);
-            exit (exitcode_protocol_error);
-        }
+    *saltsize = (unsigned char) *msgbuf++;
+    if (msglen < (size_t) *saltsize + 1) {
+        verbose (0, "parse_digests: bad size=%lld, salt size = %d\n", (long long)msglen, *saltsize);
+        exit (exitcode_protocol_error);
     }
 
-    *salt = malloc (*saltsize);
-    memcpy (*salt, msgbuf, *saltsize);
+    *salt = malloc (*saltsize ? *saltsize : 1);
+    if (*saltsize) memcpy (*salt, msgbuf, *saltsize);
 
     msgbuf += *saltsize;
     msglen -= *saltsize + 1;
