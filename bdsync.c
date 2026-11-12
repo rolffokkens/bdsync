@@ -465,6 +465,11 @@ int vpread (struct dev *devp, void *buf, off_t len, off_t pos)
             posix_fadvise (devp->fd, pos, rlen, POSIX_FADV_DONTNEED);
             verbose (3, "posix_fadvise: start=%lld end=%lld\n", (long long)pos, (long long)pos+rlen);
         }
+        if (ret < rlen) {
+            /* device/file shrank while we were reading: never hash
+               whatever happened to be in the rest of the buffer        */
+            memset (cbuf + ret, 0, rlen - ret);
+        }
     }
 
     if (rlen < len) memset (cbuf + rlen, 0, len - rlen);
