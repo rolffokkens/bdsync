@@ -2021,6 +2021,18 @@ int async_block_write (struct context *ctx, unsigned char token, char *msg, size
     verbose (3, "async_block_write entry\n");
 
     parse_block (msg, msglen, &pos, &len, &pblock);
+
+    /* Only accept a block which we actually asked for; the patch format
+       stores the length in an unsigned short so a larger block cannot be
+       written without truncating it.                                      */
+    if (   ctx->blockreqs <= 0
+        || pos < 0
+        || len < 1 || len > 32768) {
+        verbose (0, "async_block_write: unsolicited or bad block pos=%lld len=%lld\n"
+                  , (long long)pos, (long long)len);
+        exit (exitcode_protocol_error);
+    }
+
     write_block (ctx, pos, len, pblock);
 
     (ctx->blockreqs)--;
