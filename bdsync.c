@@ -494,7 +494,7 @@ int handle_err (int fd)
                 /* if (ep == ebuf + EBUFSIZ) ep = ebuf; */
                 ep = ebuf;
             }
-            if (!isprint((int) *rp)) {
+            if (!isprint ((unsigned char) *rp)) {
                 rp++;
                 sz--;
                 continue;
