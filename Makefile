@@ -5,7 +5,7 @@ else
 CRYPTO_DEF=
 CRYPTO_LDFLAGS=-lcrypto
 endif
-CFLAGS=-O3
+CFLAGS=-O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro -Wl,-z,now
 
 all: bdsync bdsync.1
 

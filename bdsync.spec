@@ -21,7 +21,7 @@ functionality and options, but rsync lacks good block device synchronization.
 %setup -q -n bdsync-%{version}-%{gitcommit}
 
 %build
-make "CFLAGS=-g -O3"
+make "CFLAGS=-g -O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro -Wl,-z,now"
 
 %check
 make test
