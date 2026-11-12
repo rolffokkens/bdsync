@@ -1245,6 +1245,10 @@ int send_block (struct wr_queue *pqueue, int fd, off_t pos, off_t len)
 
     verbose (1, "send_block: pos=%lld len=%lld\n", (long long)pos, (long long)len);
 
+    if (pos < 0 || len < 1 || len > MSGMAX - 2 * sizeof (pos)) {
+        exitmsg (exitcode_transmission_error, "send_block: bad pos=%lld len=%lld\n", (long long)pos, (long long)len);
+    }
+
     tbuf = malloc (sizeof (pos) + len);
     cp   = tbuf;
 
@@ -1253,11 +1257,7 @@ int send_block (struct wr_queue *pqueue, int fd, off_t pos, off_t len)
 
     ret = pread (fd, cp, len, pos);
     if (ret != len) {
-        if (len < 0) {
-            exitmsg (exitcode_transmission_error, "send_block: pread: %s\n", strerror (errno));
-        } else {
-            exitmsg (exitcode_transmission_error, "send_block: pread read bad #bytes");
-        }
+        exitmsg (exitcode_transmission_error, "send_block: pread read bad #bytes");
     }
 
     ret = add_wr_queue (pqueue, msg_block, tbuf, sizeof (pos) + len);
@@ -1871,6 +1871,13 @@ enum exitcode do_server (int zeroblocks)
             break;
         case msg_getblock:
             parse_getblock (msg, msglen, &start, &step);
+            if (   start < 0 || step < 1
+                || step > MSGMAX - 2 * (off_t) sizeof (start)
+                || start + step > devp->size) {
+                verbose (0, "msg_getblock: bad request pos=%lld len=%lld size=%lld\n"
+                          , (long long)start, (long long)step, (long long)devp->size);
+                exit (exitcode_protocol_error);
+            }
             send_block (&wr_queue, devp->fd, start, step);
             break;
         case msg_getchecksum:
