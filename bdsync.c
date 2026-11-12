@@ -377,6 +377,31 @@ hash_ctx _init_cs (const char *checksum, int *hs)
     return ctx;
 }
 
+/* checked allocations: bdsync has no recovery path for memory exhaustion */
+void *xmalloc (size_t size)
+{
+    void *p = malloc (size ? size : 1);
+
+    if (!p) exitmsg (exitcode_io_error, "out of memory\n");
+    return p;
+}
+
+void *xcalloc (size_t nmemb, size_t size)
+{
+    void *p = calloc (nmemb ? nmemb : 1, size ? size : 1);
+
+    if (!p) exitmsg (exitcode_io_error, "out of memory\n");
+    return p;
+}
+
+char *xstrdup (const char *s)
+{
+    char *p = strdup (s);
+
+    if (!p) exitmsg (exitcode_io_error, "out of memory\n");
+    return p;
+}
+
 static struct zero_hash *pzeroes      = NULL;
 static off_t            zeroblocksize = 0;
 static unsigned char    *zeroblock    = NULL; 
@@ -395,19 +420,19 @@ static struct zero_hash *find_zero_hash (const char *name, off_t blocksize, int 
     }
     if (blocksize > zeroblocksize) {
         if (zeroblock) free (zeroblock);
-        zeroblock = calloc (1, blocksize);
+        zeroblock = xcalloc (1, blocksize);
         zeroblocksize = blocksize;
     }
     ctx = _init_cs (name, &hs);
 
     pzh     = pzeroes;
-    pzeroes = malloc (sizeof (struct zero_hash));
+    pzeroes = xmalloc (sizeof (struct zero_hash));
 
     pzeroes->pnxt      = pzh;
-    pzeroes->name      = strdup (name);
+    pzeroes->name      = xstrdup (name);
     pzeroes->blocksize = blocksize;
     pzeroes->hashsize  = hs;
-    pzeroes->hash      = malloc (hs);
+    pzeroes->hash      = xmalloc (hs);
 
     hash_update (ctx, salt,      saltsize);
     hash_update (ctx, zeroblock, blocksize);
@@ -426,12 +451,12 @@ struct cs_state *init_checksum (const char *checksum)
 
     ctx = _init_cs (checksum, &hs);
 
-    state = malloc (sizeof (*state));
+    state = xmalloc (sizeof (*state));
 
     state->nxtpos   = 0;
     state->ctx      = ctx;
     state->hashsize = hs;
-    state->name     = strdup (checksum);
+    state->name     = xstrdup (checksum);
 
     return state;
 }
@@ -518,7 +543,7 @@ int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t 
         size_t nrd ;
         off_t  len   = pos - state->nxtpos;
         size_t blen  = (len > 32768 ? 32768 : len);
-        char   *fbuf = malloc (blen);
+        char   *fbuf = xmalloc (blen);
 
         while (len) {
             verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
@@ -648,7 +673,7 @@ pid_t do_command (char *command, struct rd_queue *prd_queue, struct wr_queue *pw
     int   in_quote = 0;
     int   f_in, f_out;
 
-    command = strdup (command);
+    command = xstrdup (command);
 
     for (t = f = command; *f; f++) {
         if (*f == ' ') continue;
@@ -901,7 +926,7 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
                     exit (exitcode_read_error);
                 }
 
-                pmsg       = malloc (sizeof (struct msg) + len + 1);
+                pmsg       = xmalloc (sizeof (struct msg) + len + 1);
                 pmsg->pnxt = NULL;
                 pmsg->len  = len;
 
@@ -1121,7 +1146,7 @@ int send_size (struct wr_queue *pqueue, off_t devsize)
 
 char *bytes2str (size_t s, unsigned char *p)
 {
-    char *ret = malloc (2 * s + 1);
+    char *ret = xmalloc (2 * s + 1);
     char *tmp = ret;
 
     while (s) {
@@ -1161,7 +1186,7 @@ int send_digests (struct wr_queue *pqueue, int saltsize, unsigned char *salt, ch
     tchecksum = (checksum ? checksum : "");
 
     buflen = saltsize + 1 + strlen (digest) + 1 + strlen (tchecksum) + 1;
-    buf    = malloc (buflen);
+    buf    = xmalloc (buflen);
     cp     = buf;
 
     *cp++ = (char) saltsize;
@@ -1221,7 +1246,7 @@ int send_hashes (struct wr_queue *pqueue, off_t start, off_t step, int nstep, un
 
     verbose (1, "send_hashes: start=%lld step=%lld nstep=%d\n", (long long)par[0], (long long)par[1], (int)par[2]);
 
-    tbuf = malloc (sizeof (par) + siz);
+    tbuf = xmalloc (sizeof (par) + siz);
 
     for (i = 0, cp = tbuf; i < 3; i++, cp += sizeof (par[0])) {
         int2char (cp, par[i], sizeof (par[0]));
@@ -1266,7 +1291,7 @@ int send_block (struct wr_queue *pqueue, int fd, off_t pos, off_t len)
         exitmsg (exitcode_transmission_error, "send_block: bad pos=%lld len=%lld\n", (long long)pos, (long long)len);
     }
 
-    tbuf = malloc (sizeof (pos) + len);
+    tbuf = xmalloc (sizeof (pos) + len);
     cp   = tbuf;
 
     int2char (cp, pos, sizeof (pos));
@@ -1461,7 +1486,7 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
         exit (exitcode_protocol_error);
     }
 
-    *salt = malloc (*saltsize ? *saltsize : 1);
+    *salt = xmalloc (*saltsize);
     if (*saltsize) memcpy (*salt, msgbuf, *saltsize);
 
     msgbuf += *saltsize;
@@ -1475,7 +1500,7 @@ int parse_digests (char *msgbuf, size_t msglen, int *saltsize, unsigned char **s
         exit (exitcode_protocol_error);
     }
 
-    *dg_nm = strdup (digest);
+    *dg_nm = xstrdup (digest);
     *dg_md = hash_getbyname (digest);
 
     if (!*dg_md) {
@@ -1614,7 +1639,7 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
 
     if (*nstep) {
         *is_hint = 0;
-        *hbuf     = malloc ((size_t) *nstep * hashsize);
+        *hbuf     = xmalloc ((size_t) *nstep * hashsize);
         memcpy (*hbuf, msgbuf, (size_t) *nstep * hashsize);
     } else {
         *is_hint = 1;
@@ -1646,7 +1671,7 @@ int parse_checksum ( char *msgbuf, size_t msglen
     }
 
     *len = msglen;
-    *buf = malloc (msglen);
+    *buf = xmalloc (msglen);
     memcpy (*buf, msgbuf, msglen);
 
     {
@@ -1674,7 +1699,7 @@ int flush_checksum (struct cs_state **state, size_t *len, unsigned char **buf)
 {
     if (*state) {
         *len = (*state)->hashsize;
-        *buf = malloc (*len);
+        *buf = xmalloc (*len);
 
         hash_finish ((*state)->ctx, *buf);
 
@@ -1745,15 +1770,13 @@ int gen_hashes ( struct context *ctx
     hash_ctx      dg_ctx;
 
     *retsiz = (size_t) nstep * hashsize;
-    buf     = malloc (*retsiz);
+    buf     = xmalloc (*retsiz);
     *retbuf = buf;
-    if (!buf) exitmsg (exitcode_io_error, "gen_hashes: out of memory\n");
 
     verbose (1, "gen_hashes: start=%lld step=%lld nstep=%d\n"
             , (long long) start, (long long)step, nstep);
 
-    fbuf    = malloc (step);
-    if (!fbuf) exitmsg (exitcode_io_error, "gen_hashes: out of memory\n");
+    fbuf    = xmalloc (step);
 
     while (nstep) {
         flush_wr_queue (pwr_queue, 0);
@@ -2166,7 +2189,7 @@ int hashmatch ( struct context *ctx
                     off_t          len   = tend - pos;
                     off_t          tpos  = pos;
                     unsigned short blen  = (len > 32768 ? 32768 : len);
-                    char           *fbuf = malloc (blen);
+                    char           *fbuf = xmalloc (blen);
 
                     while (len) {
                         if (blen > len) blen = len;
@@ -2346,7 +2369,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
         tlen  = strlen (checksum);
         len   = tlen + 1 + clen + 1;
 
-        buf   = malloc (len);
+        buf   = xmalloc (len);
         cp    = buf;
 
         *cp++ = tlen;
@@ -2393,7 +2416,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
     int            len;
     off_t          ndevsize;
     int            bufsize = 4096;
-    char           *buf = malloc (bufsize);
+    char           *buf = xmalloc (bufsize);
     unsigned short devlen;
     char           *devname;
     int            resized = 0;
@@ -2419,7 +2442,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         verbose (0, "ERROR: Bad data (1)\n");
         exit (exitcode_invalid_patch_format);
     }
-    devname = malloc (devlen + 1);
+    devname = xmalloc (devlen + 1);
     if (fread (devname, 1, devlen, stdin) != devlen) {
         verbose (0, "ERROR: Bad data (2)\n");
         exit (exitcode_invalid_patch_format);
@@ -2477,7 +2500,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         if (bufsize < blen) {
             free (buf);
             bufsize = blen;
-            buf = malloc (bufsize);
+            buf = xmalloc (bufsize);
         }
         if (fread (buf, 1, blen, stdin) != blen) {
             verbose (0, "Bad data\n");
@@ -2508,7 +2531,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
         }
         if (c != 0) {
             clen = c;
-            char *checksum = malloc (clen + 1);
+            char *checksum = xmalloc (clen + 1);
             if (fread (checksum, 1, clen, stdin) != clen) {
                 verbose (0, "Bad data\n");
                 exit (exitcode_invalid_patch_format);
@@ -2520,7 +2543,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
                 exit (exitcode_invalid_patch_format);
             }
             clen = c;
-            unsigned char *cval = malloc (clen);
+            unsigned char *cval = xmalloc (clen);
             if (fread (cval, 1, clen, stdin) != clen) {
                 verbose (0, "Bad data\n");
                 exit (exitcode_invalid_patch_format);
@@ -2536,7 +2559,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
             if (!resized && devp->size == ndevsize) {
                 int      hs;
                 hash_ctx ctx = _init_cs (checksum, &hs);
-                char     *rbuf = malloc (65536);
+                char     *rbuf = xmalloc (65536);
                 off_t    pos = 0;
 
                 if ((int) clen != hs) {
