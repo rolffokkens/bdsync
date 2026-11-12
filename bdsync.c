@@ -89,6 +89,12 @@
 #define MSGMAX 131072
 #define ARGMAX 256
 
+/* max number of hashes that fit in one msg_hashes frame */
+#define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off_t))/(hashsize))
+
+/* sane upper bound for a hash step ("blocksize") */
+#define MAXHASHSTEP (64*1024*1024)
+
 #define SALTSIZE 32
 
 #define ARCHVER "BDSYNC 0.3"
@@ -1586,15 +1592,19 @@ int parse_hashes ( int hashsize, char *msgbuf, size_t msglen
     *step  = par[1];
     *nstep = par[2];
 
-    if (msglen != sizeof (par) + *nstep * hashsize) {
-        verbose (0, "parse_hashes: bad size=%lld expected=%lld\n", (long long)msglen, (long long)(sizeof (par) + *nstep * hashsize));
+    /* size_t arithmetic: "nstep * hashsize" must not wrap around */
+    if (   *nstep < 0
+        || hashsize < 1
+        || (off_t) *nstep > MAXHASHES (hashsize)
+        || msglen != sizeof (par) + (size_t) *nstep * hashsize) {
+        verbose (0, "parse_hashes: bad size=%lld minimum=%d\n", (long long)msglen, hashsize);
         exit (exitcode_protocol_error);
     }
 
     if (*nstep) {
         *is_hint = 0;
-        *hbuf     = malloc (*nstep * hashsize);
-        memcpy (*hbuf, msgbuf, *nstep * hashsize);
+        *hbuf     = malloc ((size_t) *nstep * hashsize);
+        memcpy (*hbuf, msgbuf, (size_t) *nstep * hashsize);
     } else {
         *is_hint = 1;
         *hbuf    = NULL;
@@ -1723,14 +1733,16 @@ int gen_hashes ( struct context *ctx
     int           hashsize = hash_getsize (md);
     hash_ctx      dg_ctx;
 
-    *retsiz = nstep * hashsize;
-    buf     = malloc (nstep * hashsize);
+    *retsiz = (size_t) nstep * hashsize;
+    buf     = malloc (*retsiz);
     *retbuf = buf;
+    if (!buf) exitmsg (exitcode_io_error, "gen_hashes: out of memory\n");
 
     verbose (1, "gen_hashes: start=%lld step=%lld nstep=%d\n"
             , (long long) start, (long long)step, nstep);
 
     fbuf    = malloc (step);
+    if (!fbuf) exitmsg (exitcode_io_error, "gen_hashes: out of memory\n");
 
     while (nstep) {
         flush_wr_queue (pwr_queue, 0);
@@ -1857,6 +1869,19 @@ enum exitcode do_server (int zeroblocks)
             break;
         case msg_gethashes:
             parse_gethashes (msg, msglen, &start, &step, &nstep, &hint);
+            if (!hint) {
+                int hs = hash_getsize (dg_md);
+
+                if (   hs < 1
+                    || nstep < 1
+                    || (off_t) nstep > MAXHASHES (hs)
+                    || step < 1
+                    || step > MAXHASHSTEP) {
+                    verbose (0, "msg_gethashes: bad request step=%lld nstep=%d hashsize=%d\n"
+                              , (long long)step, nstep, hs);
+                    exit (exitcode_protocol_error);
+                }
+            }
             if (hint) {
                 parse_hint (start, step, devp);
                 buf = NULL;
@@ -1961,8 +1986,6 @@ void check_token (char *f, unsigned char token, unsigned char expect)
 #define HLARGE  65536
 // #define HSMALL  32768
 // #define HLARGE  32768
-
-#define MAXHASHES(hashsize) ((MSGMAX-3*sizeof(off_t))/hashsize)
 
 int write_block (struct context *ctx, off_t pos, unsigned short len, char *pblock)
 {
