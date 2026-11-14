@@ -433,7 +433,7 @@ static struct zero_hash *find_zero_hash (const char *name, off_t blocksize, int 
     hash_ctx         ctx;
     int              hs;
 
-    verbose (3, "find_zero_hash: name=%s: blocksize=%lld, salt=%p\n", name, blocksize, salt);
+    verbose (3, "find_zero_hash: name=%s: blocksize=%lld, salt=%p\n", name, (long long) blocksize, salt);
 
     while (pzh) {
         if (!strcmp (pzh->name, name) && pzh->blocksize == blocksize) return pzh;
@@ -557,8 +557,8 @@ int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t 
 {
     if (!state) return 0;
 
-    verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
-            , (long long) state->nxtpos, len);
+    verbose (3, "update_checksum: checksum: pos=%lld, len=%lld\n"
+            , (long long) state->nxtpos, (long long) len);
 
     if (pos > state->nxtpos) {
         size_t nrd ;
@@ -568,7 +568,7 @@ int update_checksum (struct cs_state *state, off_t pos, struct dev *devp, off_t 
 
         while (len) {
             verbose (3, "update_checksum: checksum: pos=%lld, len=%d\n"
-                    , (long long) state->nxtpos, blen);
+                    , (long long) state->nxtpos, (int) blen);
 
             nrd = vpread (devp, fbuf, blen, state->nxtpos);
 
@@ -943,7 +943,7 @@ int fill_rd_queue (struct context *ctx, struct rd_queue *pqueue, async_handler h
                 if (len < 1 || len > MSGMAX) {
                     /* A message always carries at least the token byte; */
                     /* a zero length would underflow "len - 1" later on  */
-                    verbose (0, "fill_rd_queue: bad msg size %d\n", (int)len);
+                    verbose (0, "fill_rd_queue: bad msg size %lld\n", (long long)len);
                     exit (exitcode_read_error);
                 }
 
@@ -1088,7 +1088,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
         tv2.tv_sec  -= 1;
     }
 
-    verbose (2, "get_rd_queue: wait = %d.%06d\n", tv2.tv_sec, tv2.tv_usec);
+    verbose (2, "get_rd_queue: wait = %d.%06d\n", (int) tv2.tv_sec, (int) tv2.tv_usec);
 
     get_rd_wait.tv_sec  += tv2.tv_sec;
     get_rd_wait.tv_usec += tv2.tv_usec;
@@ -1123,7 +1123,7 @@ int get_rd_queue (struct context *ctx, struct wr_queue *pwr_queue, struct rd_que
 
     free (phd);
 
-    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgname(*token), *msglen);
+    verbose (2, "get_rd_queue: msg = %s, len = %d\n", msgname(*token), (int) *msglen);
 
     return 1;
 }
@@ -1482,7 +1482,7 @@ int parse_size (char *msgbuf, size_t msglen, off_t *size)
 
     *size = char2int (msgbuf, sizeof (*size));
 
-    verbose (1, "parse_size: size = %ld\n", (long)*size);
+    verbose (1, "parse_size: size = %lld\n", (long long)*size);
 
     return 0;
 };
@@ -1580,7 +1580,7 @@ int parse_gethashes ( char *msgbuf, size_t msglen
 
     *is_hint = (*nstep == 0);
 
-    verbose (1, "parse_gethashes: start=%lld step=%lld nstep=%d is_hint=%d\n", (long long)par[0], (long long)par[1], (int)par[2], *is_hint);
+    verbose (1, "parse_gethashes: start=%lld step=%lld nstep=%lld is_hint=%d\n", (long long)par[0], (long long)par[1], (long long)par[2], *is_hint);
 
     return 0;
 };
@@ -1839,8 +1839,8 @@ int gen_hashes ( struct context *ctx
 
         if (isverbose >= 3) {
             char *tmp = bytes2str (hashsize, buf);
-            verbose (3, "gen_hashes: hash: pos=%lld, len=%d, hash=%s\n"
-                    , (long long) start, nrd, tmp);
+            verbose (3, "gen_hashes: hash: pos=%lld, len=%lld, hash=%s\n"
+                    , (long long) start, (long long) nrd, tmp);
             free (tmp);
         }
         update_checksum (cs_state, start, devp, step, fbuf);
@@ -2369,7 +2369,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
     free (msg);
     if (rdevsize != devp->size) {
         if (diffsize & ds_warn) {
-            verbose (0, "Different sizes local=%lld remote=%lld\n", devp->size, rdevsize);
+            verbose (0, "Different sizes local=%lld remote=%lld\n", (long long)devp->size, (long long)rdevsize);
         }
         switch (diffsize & ds_mask) {
         case ds_strict:
@@ -2456,7 +2456,7 @@ enum exitcode do_client (char *digest, char *checksum, char *command, char *ldev
 
     print_progress (&ctx, progress, mdevsize);
 
-    verbose (2, "do_client: get_rd_wait = %d.%06d\n", get_rd_wait.tv_sec, get_rd_wait.tv_usec);
+    verbose (2, "do_client: get_rd_wait = %d.%06d\n", (int) get_rd_wait.tv_sec, (int) get_rd_wait.tv_usec);
 
     send_done (&wr_queue);
     get_rd_queue (&ctx, &wr_queue, &rd_queue,  fd_err, &token, &msg, &msglen, NULL);
@@ -2527,7 +2527,7 @@ enum exitcode do_patch (char *dev, int warndev, int diffsize)
 
     if (ndevsize != devp->size) {
         if (diffsize & ds_warn) {
-            verbose (0, "Different sizes current=%lld patch=%lld\n", devp->size, ndevsize);
+            verbose (0, "Different sizes current=%lld patch=%lld\n", (long long)devp->size, (long long)ndevsize);
         }
         switch (diffsize & ds_mask) {
         case ds_strict:
